@@ -412,7 +412,7 @@
         y: Number(overlay.y ?? 0.82),
         boxWidth: Number(overlay.boxWidth || 0.26),
         fontSize: Number(overlay.fontSize || 64),
-        fontFamily: overlay.fontFamily || "Arial",
+        fontFamily: overlay.fontFamily || "Malgun Gothic",
         fontWeight: String(overlay.fontWeight || 700),
         color: overlay.color || "#ffffff",
         opacity: Number(overlay.opacity ?? 1),
@@ -433,12 +433,13 @@
       const xNorm = clamp(Number(overlay.x ?? 0.5), 0, 1);
       const yNorm = clamp(Number(overlay.y ?? 0.82), 0, 1);
       el.className = "previewTextItem";
+      el.dataset.overlayId = String(overlay.id || "");
       el.textContent = overlay.text || "Text";
       el.style.left = `${frame.left + Math.round(frame.width * xNorm)}px`;
       el.style.top = `${frame.top + Math.round(frame.height * yNorm)}px`;
       el.style.maxWidth = `${Math.max(80, frame.width * Math.max(0.12, Number(overlay.boxWidth || 0.26)))}px`;
       el.style.fontSize = `${Math.max(10, Math.round(Number(overlay.fontSize || 64) * frame.scale))}px`;
-      el.style.fontFamily = overlay.fontFamily || "Arial";
+      el.style.fontFamily = overlay.fontFamily || "Malgun Gothic";
       el.style.fontWeight = String(overlay.fontWeight || 700);
       el.style.color = overlay.noFill ? "transparent" : (overlay.color || "#ffffff");
       el.style.opacity = String(clamp(Number(overlay.opacity ?? 1), 0, 1));
@@ -452,6 +453,7 @@
     textOverlays.forEach((overlay, index) => {
       const el = layer.children[index];
       if (!el) return;
+      el.dataset.overlayId = String(overlay.id || "");
       const total = Math.max(MIN_OVERLAY_CLIP_SEC, Number(overlay.duration || 2));
       const localTime = Math.max(0, currentTime - Number(overlay.start || 0));
       const textAlign = String(overlay.textAlign || "center");

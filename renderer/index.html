@@ -177,8 +177,8 @@
                 <div class="formGridTwo">
                   <div class="formRow overlayFormRow">
                     <label for="overlayStrokeWidthInput">윤곽 두께</label>
-                    <input id="overlayStrokeWidthInput" type="range" min="0" max="12" step="1" value="3" />
-                    <span id="overlayStrokeWidthValue" class="miniValue">3px</span>
+                    <input id="overlayStrokeWidthInput" type="range" min="0" max="12" step="1" value="0" />
+                    <span id="overlayStrokeWidthValue" class="miniValue">0px</span>
                   </div>
                   <div class="formRow overlayFormRow">
                     <label for="overlayFontWeightInput">굵기</label>
@@ -196,6 +196,8 @@
                       <option value="Arial">Arial</option>
                       <option value="Pretendard">Pretendard</option>
                       <option value="Malgun Gothic">Malgun Gothic</option>
+                      <option value="Apple SD Gothic Neo">Apple SD Gothic Neo</option>
+                      <option value="Noto Sans CJK KR">Noto Sans CJK KR</option>
                       <option value="Georgia">Georgia</option>
                       <option value="__add_custom_font__">+ 새 글씨체 추가하기...</option>
                     </select>
@@ -555,11 +557,11 @@
       <div class="modalBody customFontBody">
         <div class="customFontNotice">
           <b>넣을 파일</b>
-          <span>다운로드한 폰트의 <strong>.ttf</strong>, <strong>.otf</strong>, <strong>.woff</strong>, <strong>.woff2</strong> 파일을 선택하세요. 압축 파일(.zip)은 먼저 풀어야 합니다.</span>
+          <span>다운로드한 폰트의 <strong>.ttf</strong>, <strong>.otf</strong>, <strong>.ttc</strong>, <strong>.woff</strong>, <strong>.woff2</strong> 파일을 선택하세요. 압축 파일(.zip)은 먼저 풀어야 합니다.</span>
         </div>
         <div class="formRow customFontRow">
           <label for="customFontFileInput">폰트 파일</label>
-          <input id="customFontFileInput" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" />
+          <input id="customFontFileInput" type="file" accept=".ttf,.otf,.ttc,.woff,.woff2,font/ttf,font/otf,font/collection,font/woff,font/woff2" />
         </div>
         <div id="customFontFileHint" class="customFontFileHint">선택된 파일 없음</div>
         <div class="formRow customFontRow">

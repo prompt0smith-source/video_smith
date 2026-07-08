@@ -48,8 +48,8 @@
   const AUTO_SAVE_INTERVAL_MS = 5 * 60 * 1000;
   const CUSTOM_FONT_STORAGE_KEY = "videosmith.customFonts.v1";
   const ADD_CUSTOM_FONT_VALUE = "__add_custom_font__";
-  const BASE_FONT_FAMILIES = ["Arial", "Pretendard", "Malgun Gothic", "Georgia"];
-  const SUPPORTED_FONT_EXTS = new Set(["ttf", "otf", "woff", "woff2"]);
+  const BASE_FONT_FAMILIES = ["Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans CJK KR", "Pretendard", "Arial", "Georgia"];
+  const SUPPORTED_FONT_EXTS = new Set(["ttf", "otf", "ttc", "woff", "woff2"]);
   const IMPORT_VIDEO_EXT = new Set(["mp4", "mov", "avi", "mkv", "wmv", "webm"]);
   const IMPORT_AUDIO_EXT = new Set(["mp3", "wav", "m4a", "aac", "flac", "ogg"]);
   const IMPORT_IMAGE_EXT = new Set([
@@ -1348,7 +1348,7 @@
 
   function refreshFontFamilySelect(selectedFamily = "", selectedFontFile = "") {
     if (!els.overlayFontFamilyInput) return;
-    const current = selectedFamily || els.overlayFontFamilyInput.value || "Arial";
+    const current = selectedFamily || els.overlayFontFamilyInput.value || "Malgun Gothic";
     els.overlayFontFamilyInput.innerHTML = "";
     BASE_FONT_FAMILIES.forEach((font) => {
       const opt = document.createElement("option");
@@ -1375,7 +1375,7 @@
     addOpt.textContent = "+ 새 글씨체 추가하기...";
     els.overlayFontFamilyInput.appendChild(addOpt);
     const hasSelected = [...els.overlayFontFamilyInput.options].some((opt) => opt.value === current);
-    els.overlayFontFamilyInput.value = hasSelected ? current : "Arial";
+    els.overlayFontFamilyInput.value = hasSelected ? current : "Malgun Gothic";
   }
 
   function syncCustomFontDialogState() {
@@ -1402,7 +1402,7 @@
 
   function getSelectedTextOverlayFontFamily() {
     const overlay = getSelectedOverlayItem?.();
-    return overlay?.overlayType === "text" ? String(overlay.fontFamily || "Arial") : "Arial";
+    return overlay?.overlayType === "text" ? String(overlay.fontFamily || "Malgun Gothic") : "Malgun Gothic";
   }
 
   function normalizeToArrayBuffer(bufLike) {
@@ -2266,7 +2266,7 @@
       fontWeight: String(defaults.fontWeight || "700"),
       textAlign: ["left", "center", "right"].includes(String(defaults.textAlign || "")) ? String(defaults.textAlign) : "center",
       strokeColor: normalizeColor(defaults.strokeColor, "#000000"),
-      strokeWidth: Math.max(0, Number(defaults.strokeWidth || 3)),
+      strokeWidth: Math.max(0, Number(defaults.strokeWidth ?? 0)),
       noStroke: !!defaults.noStroke,
       manualFadeInSec: Math.max(0, Number(defaults.manualFadeInSec || 0)),
       manualFadeOutSec: Math.max(0, Number(defaults.manualFadeOutSec || 0)),
@@ -2301,11 +2301,11 @@
           y: legacy.y === "h-120" ? 0.82 : (typeof legacy.y === "number" ? legacy.y : 0.82),
           fontSize: legacy.fontSize || 64,
           color: legacy.color || "#ffffff",
-          fontFamily: legacy.fontFamily || "Arial",
+          fontFamily: legacy.fontFamily || "Malgun Gothic",
           fontWeight: legacy.fontWeight || "700",
           textAlign: legacy.textAlign || "center",
           strokeColor: legacy.strokeColor || "#000000",
-          strokeWidth: legacy.strokeWidth || 3,
+          strokeWidth: legacy.strokeWidth ?? 0,
           opacity: legacy.opacity ?? 1
         }));
       });
@@ -3551,6 +3551,27 @@
     return timeSec >= start - 1e-6 && timeSec <= end + 1e-6 ? selected : null;
   }
 
+  function getRenderedPreviewTextBox(overlay, frame) {
+    if (!overlay?.id || !els.dropZone) return null;
+    const layer = document.getElementById("previewTextOverlayLayer");
+    if (!layer) return null;
+    const textEl = [...layer.querySelectorAll(".previewTextItem")]
+      .find((item) => item.dataset.overlayId === String(overlay.id));
+    if (!textEl) return null;
+    const textRect = textEl.getBoundingClientRect?.();
+    const rootRect = els.dropZone.getBoundingClientRect?.();
+    if (!textRect || !rootRect || textRect.width <= 0 || textRect.height <= 0) return null;
+    const pad = Math.max(4, Math.min(18, (Number(overlay.strokeWidth || 0) * frame.scale) + 6));
+    return {
+      frame,
+      left: (textRect.left - rootRect.left) - pad,
+      top: (textRect.top - rootRect.top) - pad,
+      width: textRect.width + (pad * 2),
+      height: textRect.height + (pad * 2),
+      renderedTextBox: true
+    };
+  }
+
   function getPreviewVideoBox(clip) {
     const layout = getPreviewClipLayout(clip);
     if (!layout) return null;
@@ -3717,9 +3738,17 @@
         height: Math.abs(y2 - cy) + (pad * 2)
       };
     }
+    if (overlay.overlayType === "text") {
+      const renderedBox = getRenderedPreviewTextBox(overlay, frame);
+      if (renderedBox) return renderedBox;
+    }
+    const textAlign = String(overlay.textAlign || "center");
     const width = frame.width * Math.max(0.12, Number(overlay.boxWidth || 0.26));
     const height = Math.max(28, Number(overlay.fontSize || 64) * frame.scale * 1.45);
-    return { frame, left: cx - (width / 2), top: cy - (height / 2), width, height };
+    const left = textAlign === "left"
+      ? cx
+      : (textAlign === "right" ? cx - width : cx - (width / 2));
+    return { frame, left, top: cy, width, height };
   }
 
   function findPreviewOverlayAtPoint(clientX, clientY) {
@@ -3781,6 +3810,7 @@
           }
           const frame = box.frame;
           const axes = axisScale(handleName, frame);
+          let textResizePositionHandled = false;
           if (mode === "move") {
             overlay.x = Math.max(0, Math.min(1, before.x + (dx / Math.max(1, frame.width))));
             overlay.y = Math.max(0, Math.min(1, before.y + (dy / Math.max(1, frame.height))));
@@ -3863,8 +3893,28 @@
             if (axes.xScale !== 0) overlay.boxWidth = Math.max(0.12, before.boxWidth + ((dx * axes.xScale) / axes.xUnit));
             if (axes.yScale !== 0) overlay.fontSize = Math.max(18, before.fontSize + (dy * axes.yScale * 0.42));
             if (axes.xScale !== 0 && axes.yScale === 0) overlay.fontSize = Math.max(18, before.fontSize + (dx * axes.xScale * 0.22));
+            if (mode === "resize") {
+              const align = String(before.textAlign || "center");
+              const beforeX = Number(before.x ?? 0.5);
+              const beforeY = Number(before.y ?? 0.82);
+              if (axes.xScale !== 0) {
+                if (align === "left" && axes.xScale < 0) {
+                  overlay.x = beforeX + (dx / axes.xUnit);
+                } else if (align === "right" && axes.xScale > 0) {
+                  overlay.x = beforeX + (dx / axes.xUnit);
+                } else if (align === "center") {
+                  overlay.x = beforeX + ((dx * 0.5) / axes.xUnit);
+                } else {
+                  overlay.x = beforeX;
+                }
+              }
+              overlay.y = axes.yScale < 0 ? beforeY + (dy / axes.yUnit) : beforeY;
+              overlay.x = Math.max(0, Math.min(1, overlay.x));
+              overlay.y = Math.max(0, Math.min(1, overlay.y));
+              textResizePositionHandled = true;
+            }
           }
-          if (mode === "resize") {
+          if (mode === "resize" && !textResizePositionHandled) {
             if (axes.xScale !== 0) overlay.x = Math.max(0, Math.min(1, before.x + ((dx * 0.5) / axes.xUnit)));
             if (axes.yScale !== 0) overlay.y = Math.max(0, Math.min(1, before.y + ((dy * 0.5) / axes.yUnit)));
           }
@@ -4443,7 +4493,7 @@
     if (els.overlayStrokeWidthInput) els.overlayStrokeWidthInput.value = String(Math.round(Number(overlay.strokeWidth || 0)));
     if (els.overlayStrokeWidthValue) els.overlayStrokeWidthValue.textContent = `${Math.round(Number(overlay.strokeWidth || 0))}px`;
     if (els.overlayFontWeightInput) els.overlayFontWeightInput.value = String(overlay.fontWeight || "700");
-    refreshFontFamilySelect(String(overlay.fontFamily || "Arial"), String(overlay.fontFile || ""));
+    refreshFontFamilySelect(String(overlay.fontFamily || "Malgun Gothic"), String(overlay.fontFile || ""));
     if (els.overlayTextAlignInput) els.overlayTextAlignInput.value = String(overlay.textAlign || "center");
   }
 
@@ -5577,7 +5627,7 @@
       updateSelectedOverlay((overlay) => { overlay.fontWeight = String(els.overlayFontWeightInput.value || "700"); });
     });
     els.overlayFontFamilyInput?.addEventListener("change", () => {
-      const selected = String(els.overlayFontFamilyInput.value || "Arial");
+      const selected = String(els.overlayFontFamilyInput.value || "Malgun Gothic");
       if (selected === ADD_CUSTOM_FONT_VALUE) {
         refreshFontFamilySelect(getSelectedTextOverlayFontFamily());
         openCustomFontModal();
@@ -5608,7 +5658,7 @@
       const ext = getFileExtension(filePath || file?.name || "");
       if (!file || !filePath || !SUPPORTED_FONT_EXTS.has(ext)) {
         pendingCustomFontFilePath = "";
-        if (els.customFontFileHint) els.customFontFileHint.textContent = "ttf, otf, woff, woff2 파일만 추가할 수 있습니다.";
+        if (els.customFontFileHint) els.customFontFileHint.textContent = "ttf, otf, ttc, woff, woff2 파일만 추가할 수 있습니다.";
         syncCustomFontDialogState();
         return;
       }
@@ -11769,5 +11819,3 @@
 
   void init();
 })();
-
-

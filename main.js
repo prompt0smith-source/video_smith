@@ -6,6 +6,12 @@ const os = require("os");
 const { exec } = require("child_process");
 const ffmpegPath = require("ffmpeg-static");
 const ffprobePath = require("ffprobe-static").path;
+let ffprobeInstallerPath = "";
+try {
+  ffprobeInstallerPath = require("@ffprobe-installer/ffprobe").path || "";
+} catch {
+  ffprobeInstallerPath = "";
+}
 const ffmpeg = require("fluent-ffmpeg");
 const { randomUUID } = require("crypto");
 const renderGraph = require("./lib/render_graph");
@@ -179,7 +185,8 @@ const ffmpegResolved = resolveBinaryPath(ffmpegPath, [
   process.platform === "win32" ? path.join(process.resourcesPath || "", "app.asar.unpacked", "node_modules", "ffmpeg-static", "ffmpeg.exe") : "",
   process.platform === "win32" ? path.join(__dirname, "node_modules", "ffmpeg-static", "ffmpeg.exe") : ""
 ]);
-const ffprobeResolved = resolveBinaryPath(ffprobePath, [
+const ffprobeResolved = resolveBinaryPath(ffprobeInstallerPath || ffprobePath, [
+  ffprobePath,
   process.platform === "win32" ? path.join(process.resourcesPath || "", "app.asar.unpacked", "node_modules", "ffprobe-static", "bin", "win32", "x64", "ffprobe.exe") : "",
   process.platform === "win32" ? path.join(process.resourcesPath || "", "app.asar.unpacked", "node_modules", "ffprobe-static", "bin", "win32", "ia32", "ffprobe.exe") : "",
   process.platform === "win32" ? path.join(__dirname, "node_modules", "ffprobe-static", "bin", "win32", "x64", "ffprobe.exe") : ""
@@ -3028,46 +3035,348 @@ function escapeDrawtextText(text) {
 function escapeFilterPath(filePath) {
   return String(filePath || "")
     .replace(/\\/g, "/")
-    .replace(/:/g, "\\:");
+    .replace(/'/g, "\\'")
+    .replace(/:/g, "\\:")
+    .replace(/,/g, "\\,")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]");
 }
 
 function hasKoreanText(value) {
   return /[\u3131-\u318E\uAC00-\uD7A3]/.test(String(value || ""));
 }
 
+const DRAW_TEXT_FONT_EXT_RE = /\.(ttf|otf|ttc|woff2?)$/i;
+const FONT_LOOKUP_CACHE = new Map();
+const FONT_SUPPORT_CACHE = new Map();
+
+function compactFontName(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9가-힣]+/g, "");
+}
+
+function isReadableFontFile(filePath) {
+  try {
+    return DRAW_TEXT_FONT_EXT_RE.test(String(filePath || "")) && fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function addFontCandidate(list, filePath) {
+  if (!filePath) return;
+  const normalized = path.normalize(String(filePath));
+  if (!list.includes(normalized)) list.push(normalized);
+}
+
+function getSystemFontSearchDirs() {
+  const homeDir = os.homedir?.() || "";
+  if (process.platform === "win32") {
+    const windir = process.env.WINDIR || "C:\\Windows";
+    return [path.join(windir, "Fonts")];
+  }
+  if (process.platform === "darwin") {
+    return [
+      "/System/Library/Fonts",
+      "/System/Library/Fonts/Supplemental",
+      "/Library/Fonts",
+      homeDir ? path.join(homeDir, "Library", "Fonts") : ""
+    ].filter(Boolean);
+  }
+  return [
+    "/usr/share/fonts",
+    "/usr/local/share/fonts",
+    homeDir ? path.join(homeDir, ".fonts") : "",
+    homeDir ? path.join(homeDir, ".local", "share", "fonts") : ""
+  ].filter(Boolean);
+}
+
+function findFontFilesByCompactName(compactName) {
+  const needle = compactFontName(compactName);
+  if (needle.length < 3) return [];
+  const cacheKey = `${process.platform}:${needle}`;
+  if (FONT_LOOKUP_CACHE.has(cacheKey)) return FONT_LOOKUP_CACHE.get(cacheKey);
+  const results = [];
+  const visit = (dirPath, depth = 0) => {
+    if (depth > 4 || results.length >= 24) return;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        visit(fullPath, depth + 1);
+      } else if (entry.isFile() && DRAW_TEXT_FONT_EXT_RE.test(entry.name) && compactFontName(entry.name).includes(needle)) {
+        results.push(fullPath);
+        if (results.length >= 24) break;
+      }
+    }
+  };
+  getSystemFontSearchDirs().forEach((dirPath) => visit(dirPath, 0));
+  FONT_LOOKUP_CACHE.set(cacheKey, results);
+  return results;
+}
+
+function readUInt16Safe(buffer, offset) {
+  return offset >= 0 && offset + 2 <= buffer.length ? buffer.readUInt16BE(offset) : 0;
+}
+
+function readInt16Safe(buffer, offset) {
+  return offset >= 0 && offset + 2 <= buffer.length ? buffer.readInt16BE(offset) : 0;
+}
+
+function readUInt32Safe(buffer, offset) {
+  return offset >= 0 && offset + 4 <= buffer.length ? buffer.readUInt32BE(offset) : 0;
+}
+
+function getSfntOffsets(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return [];
+  const tag = buffer.toString("ascii", 0, 4);
+  if (tag === "ttcf") {
+    const count = Math.min(64, readUInt32Safe(buffer, 8));
+    const offsets = [];
+    for (let i = 0; i < count; i += 1) {
+      const offset = readUInt32Safe(buffer, 12 + (i * 4));
+      if (offset >= 0 && offset + 12 < buffer.length) offsets.push(offset);
+    }
+    return offsets;
+  }
+  if (
+    tag === "OTTO"
+    || tag === "true"
+    || tag === "typ1"
+    || (buffer[0] === 0 && buffer[1] === 1 && buffer[2] === 0 && buffer[3] === 0)
+  ) {
+    return [0];
+  }
+  return [];
+}
+
+function findSfntTable(buffer, sfntOffset, tableTag) {
+  const numTables = readUInt16Safe(buffer, sfntOffset + 4);
+  const tableStart = sfntOffset + 12;
+  for (let i = 0; i < numTables; i += 1) {
+    const recordOffset = tableStart + (i * 16);
+    if (recordOffset + 16 > buffer.length) break;
+    const tag = buffer.toString("ascii", recordOffset, recordOffset + 4);
+    if (tag !== tableTag) continue;
+    const offset = readUInt32Safe(buffer, recordOffset + 8);
+    const length = readUInt32Safe(buffer, recordOffset + 12);
+    if (offset > 0 && offset + length <= buffer.length) return { offset, length };
+  }
+  return null;
+}
+
+function cmapFormat0HasCodePoint(buffer, offset, codePoint) {
+  if (codePoint < 0 || codePoint > 255) return false;
+  const glyphOffset = offset + 6 + codePoint;
+  return glyphOffset < buffer.length && buffer[glyphOffset] > 0;
+}
+
+function cmapFormat4HasCodePoint(buffer, offset, codePoint) {
+  if (codePoint < 0 || codePoint > 0xffff) return false;
+  const length = readUInt16Safe(buffer, offset + 2);
+  const segCount = readUInt16Safe(buffer, offset + 6) / 2;
+  if (!Number.isFinite(segCount) || segCount <= 0) return false;
+  const endCodeOffset = offset + 14;
+  const startCodeOffset = endCodeOffset + (segCount * 2) + 2;
+  const idDeltaOffset = startCodeOffset + (segCount * 2);
+  const idRangeOffsetOffset = idDeltaOffset + (segCount * 2);
+  for (let i = 0; i < segCount; i += 1) {
+    const endCode = readUInt16Safe(buffer, endCodeOffset + (i * 2));
+    if (codePoint > endCode) continue;
+    const startCode = readUInt16Safe(buffer, startCodeOffset + (i * 2));
+    if (codePoint < startCode) return false;
+    const idDelta = readInt16Safe(buffer, idDeltaOffset + (i * 2));
+    const idRangeOffset = readUInt16Safe(buffer, idRangeOffsetOffset + (i * 2));
+    if (idRangeOffset === 0) return ((codePoint + idDelta) & 0xffff) !== 0;
+    const glyphOffset = idRangeOffsetOffset + (i * 2) + idRangeOffset + ((codePoint - startCode) * 2);
+    if (glyphOffset < offset || glyphOffset + 2 > offset + length || glyphOffset + 2 > buffer.length) return false;
+    const glyphId = readUInt16Safe(buffer, glyphOffset);
+    if (glyphId === 0) return false;
+    return ((glyphId + idDelta) & 0xffff) !== 0;
+  }
+  return false;
+}
+
+function cmapFormat6HasCodePoint(buffer, offset, codePoint) {
+  if (codePoint < 0 || codePoint > 0xffff) return false;
+  const firstCode = readUInt16Safe(buffer, offset + 6);
+  const entryCount = readUInt16Safe(buffer, offset + 8);
+  const index = codePoint - firstCode;
+  if (index < 0 || index >= entryCount) return false;
+  return readUInt16Safe(buffer, offset + 10 + (index * 2)) > 0;
+}
+
+function cmapFormat12Or13HasCodePoint(buffer, offset, codePoint) {
+  const groupCount = readUInt32Safe(buffer, offset + 12);
+  const groupsOffset = offset + 16;
+  for (let i = 0; i < groupCount; i += 1) {
+    const groupOffset = groupsOffset + (i * 12);
+    if (groupOffset + 12 > buffer.length) break;
+    const startChar = readUInt32Safe(buffer, groupOffset);
+    const endChar = readUInt32Safe(buffer, groupOffset + 4);
+    if (codePoint < startChar) return false;
+    if (codePoint <= endChar) {
+      const startGlyph = readUInt32Safe(buffer, groupOffset + 8);
+      return startGlyph + (codePoint - startChar) > 0;
+    }
+  }
+  return false;
+}
+
+function cmapSubtableHasCodePoint(buffer, offset, codePoint) {
+  const format = readUInt16Safe(buffer, offset);
+  if (format === 0) return cmapFormat0HasCodePoint(buffer, offset, codePoint);
+  if (format === 4) return cmapFormat4HasCodePoint(buffer, offset, codePoint);
+  if (format === 6) return cmapFormat6HasCodePoint(buffer, offset, codePoint);
+  if (format === 12 || format === 13) return cmapFormat12Or13HasCodePoint(buffer, offset, codePoint);
+  return false;
+}
+
+function sfntSupportsCodePoints(buffer, sfntOffset, codePoints) {
+  const cmap = findSfntTable(buffer, sfntOffset, "cmap");
+  if (!cmap) return null;
+  const tableOffset = cmap.offset;
+  const numTables = readUInt16Safe(buffer, tableOffset + 2);
+  const subtables = [];
+  for (let i = 0; i < numTables; i += 1) {
+    const recordOffset = tableOffset + 4 + (i * 8);
+    if (recordOffset + 8 > buffer.length) break;
+    const platformId = readUInt16Safe(buffer, recordOffset);
+    const encodingId = readUInt16Safe(buffer, recordOffset + 2);
+    const subtableOffset = tableOffset + readUInt32Safe(buffer, recordOffset + 4);
+    const format = readUInt16Safe(buffer, subtableOffset);
+    const priority = format === 12 ? 0 : (format === 4 ? 1 : 2);
+    subtables.push({ offset: subtableOffset, platformId, encodingId, format, priority });
+  }
+  subtables.sort((a, b) => a.priority - b.priority || b.platformId - a.platformId || b.encodingId - a.encodingId);
+  return subtables.some((subtable) => (
+    codePoints.every((codePoint) => cmapSubtableHasCodePoint(buffer, subtable.offset, codePoint))
+  ));
+}
+
+function getKoreanCodePoints(value) {
+  return [...new Set(
+    [...String(value || "")]
+      .map((char) => char.codePointAt(0))
+      .filter((codePoint) => (
+        (codePoint >= 0x3131 && codePoint <= 0x318e)
+        || (codePoint >= 0xac00 && codePoint <= 0xd7a3)
+      ))
+  )];
+}
+
+function fontSupportsKoreanText(fontPath, sampleText = "") {
+  const codePoints = getKoreanCodePoints(sampleText);
+  if (!codePoints.length) return true;
+  if (!/\.(ttf|otf|ttc)$/i.test(String(fontPath || ""))) return null;
+  const cacheKey = `${fontPath}:${codePoints.join(",")}`;
+  if (FONT_SUPPORT_CACHE.has(cacheKey)) return FONT_SUPPORT_CACHE.get(cacheKey);
+  let result = null;
+  try {
+    const buffer = fs.readFileSync(fontPath);
+    const offsets = getSfntOffsets(buffer);
+    if (offsets.length) {
+      result = offsets.some((offset) => sfntSupportsCodePoints(buffer, offset, codePoints) === true);
+    }
+  } catch {
+    result = null;
+  }
+  FONT_SUPPORT_CACHE.set(cacheKey, result);
+  return result;
+}
+
+function chooseExistingDrawtextFont(candidates, sampleText = "") {
+  const wantsKorean = hasKoreanText(sampleText);
+  for (const filePath of candidates) {
+    if (!isReadableFontFile(filePath)) continue;
+    if (wantsKorean && fontSupportsKoreanText(filePath, sampleText) === false) continue;
+    return filePath;
+  }
+  return "";
+}
+
 function resolveDrawtextFontFile(fontFamily, fontWeight, fontFile = "", sampleText = "") {
   const customPath = String(fontFile || "").trim();
   try {
-    if (customPath && /\.(ttf|otf|woff2?)$/i.test(customPath) && fs.existsSync(customPath)) {
+    if (
+      customPath
+      && isReadableFontFile(customPath)
+      && (!hasKoreanText(sampleText) || fontSupportsKoreanText(customPath, sampleText) !== false)
+    ) {
       return customPath;
     }
   } catch {
     // fall back to system font lookup
   }
-  const windir = process.env.WINDIR || "C:\\Windows";
-  const fontsDir = path.join(windir, "Fonts");
-  const family = String(fontFamily || "Arial").toLowerCase();
+  const family = String(fontFamily || "Malgun Gothic").toLowerCase();
+  const compactFamily = compactFontName(family);
   const bold = Number(fontWeight || 400) >= 700;
   const candidates = [];
+  const add = (filePath) => addFontCandidate(candidates, filePath);
+  const addSystemFile = (fileName) => {
+    getSystemFontSearchDirs().forEach((dirPath) => add(path.join(dirPath, fileName)));
+  };
+  const addFamilyMatches = (name) => {
+    findFontFilesByCompactName(name).forEach(add);
+  };
+  const wantsKorean = hasKoreanText(sampleText)
+    || /korean|hangul|malgun|pretendard|apple\s*sd|noto\s*sans\s*cjk|nanum|gothic|고딕/i.test(family);
 
-  if (hasKoreanText(sampleText) || family.includes("malgun") || family.includes("pretendard")) {
-    candidates.push(bold ? "malgunbd.ttf" : "malgun.ttf");
-  } else if (family.includes("georgia")) {
-    candidates.push(bold ? "georgiab.ttf" : "georgia.ttf");
-  } else {
-    candidates.push(bold ? "arialbd.ttf" : "arial.ttf");
+  if (family.includes("pretendard")) addFamilyMatches("pretendard");
+  if (family.includes("apple") || family.includes("sd gothic")) addFamilyMatches("AppleSDGothicNeo");
+  if (family.includes("noto")) {
+    addFamilyMatches("NotoSansCJK");
+    addFamilyMatches("NotoSansKR");
   }
-  candidates.push("malgunbd.ttf", "malgun.ttf", "arialbd.ttf", "arial.ttf", "segoeuib.ttf", "segoeui.ttf");
+  if (family.includes("nanum")) addFamilyMatches("NanumGothic");
 
-  for (const fileName of candidates) {
-    const fullPath = path.join(fontsDir, fileName);
-    try {
-      if (fs.existsSync(fullPath)) return fullPath;
-    } catch {
-      // ignore path failures
+  if (process.platform === "win32") {
+    const fontsDir = path.join(process.env.WINDIR || "C:\\Windows", "Fonts");
+    if (wantsKorean) add(path.join(fontsDir, bold ? "malgunbd.ttf" : "malgun.ttf"));
+    if (family.includes("georgia")) add(path.join(fontsDir, bold ? "georgiab.ttf" : "georgia.ttf"));
+    if (family.includes("arial") || !candidates.length) add(path.join(fontsDir, bold ? "arialbd.ttf" : "arial.ttf"));
+    add(path.join(fontsDir, "malgunbd.ttf"));
+    add(path.join(fontsDir, "malgun.ttf"));
+    add(path.join(fontsDir, "arialuni.ttf"));
+    add(path.join(fontsDir, "arialbd.ttf"));
+    add(path.join(fontsDir, "arial.ttf"));
+    add(path.join(fontsDir, "segoeuib.ttf"));
+    add(path.join(fontsDir, "segoeui.ttf"));
+  } else if (process.platform === "darwin") {
+    if (wantsKorean) {
+      add("/System/Library/Fonts/AppleSDGothicNeo.ttc");
+      add("/System/Library/Fonts/Supplemental/AppleGothic.ttf");
+      add("/System/Library/Fonts/Supplemental/Arial Unicode.ttf");
     }
+    if (family.includes("georgia")) add(`/System/Library/Fonts/Supplemental/${bold ? "Georgia Bold.ttf" : "Georgia.ttf"}`);
+    if (family.includes("arial") || !candidates.length) add(`/System/Library/Fonts/Supplemental/${bold ? "Arial Bold.ttf" : "Arial.ttf"}`);
+    add("/System/Library/Fonts/AppleSDGothicNeo.ttc");
+    add("/System/Library/Fonts/Supplemental/AppleGothic.ttf");
+    add("/System/Library/Fonts/Supplemental/Arial Unicode.ttf");
+    add("/System/Library/Fonts/Supplemental/Arial.ttf");
+    add("/System/Library/Fonts/Supplemental/Georgia.ttf");
+  } else {
+    if (wantsKorean) {
+      addSystemFile("opentype/noto/NotoSansCJK-Bold.ttc");
+      addSystemFile("opentype/noto/NotoSansCJK-Regular.ttc");
+      addSystemFile("truetype/noto/NotoSansCJK-Bold.ttc");
+      addSystemFile("truetype/noto/NotoSansCJK-Regular.ttc");
+      addSystemFile("truetype/nanum/NanumGothicBold.ttf");
+      addSystemFile("truetype/nanum/NanumGothic.ttf");
+      addFamilyMatches("NotoSansCJK");
+      addFamilyMatches("NanumGothic");
+    }
+    if (family.includes("georgia")) addFamilyMatches("Georgia");
+    if (family.includes("arial")) addFamilyMatches("Arial");
+    addSystemFile("truetype/dejavu/DejaVuSans-Bold.ttf");
+    addSystemFile("truetype/dejavu/DejaVuSans.ttf");
   }
-  return "";
+  if (compactFamily) addFamilyMatches(compactFamily);
+  return chooseExistingDrawtextFont(candidates, sampleText);
 }
 
 function buildOverlayXExpr(overlay, targetWidth) {
@@ -6275,8 +6584,6 @@ ipcMain.handle("render", async (_evt, payload) => {
     return { ok: false, error: String(e?.message || e) };
   }
 });
-
-
 
 
 

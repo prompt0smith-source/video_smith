@@ -109,11 +109,11 @@
         text: "Text",
         fontSize: 64,
         color: "#ffffff",
-        fontFamily: "Arial",
+        fontFamily: "Malgun Gothic",
         fontWeight: "700",
         textAlign: "center",
         strokeColor: "#000000",
-        strokeWidth: 3,
+        strokeWidth: 0,
         y: 0.82,
         ...overrides
       };

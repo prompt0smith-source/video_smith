@@ -456,6 +456,7 @@ test("preview aspect frame and custom font picker stay wired", () => {
   assert.match(appSource, /schedulePreviewFrameRefresh\(\);/);
   assert.match(appSource, /fontFile: String\(defaults\.fontFile \|\| ""\)/);
   assert.match(appSource, /overlay\.fontFile = font\.path/);
+  assert.match(appSource, /const SUPPORTED_FONT_EXTS = new Set\(\["ttf", "otf", "ttc", "woff", "woff2"\]\)/);
   assert.match(cssSource, /#previewFrameBackdrop/);
   assert.match(cssSource, /white-space:nowrap/);
   assert.match(mainSource, /function resolveDrawtextFontFile\(fontFamily, fontWeight, fontFile = "", sampleText = ""\)/);
@@ -465,11 +466,21 @@ test("preview aspect frame and custom font picker stay wired", () => {
 test("korean drawtext subtitles prefer a Korean-capable font", () => {
   const mainSource = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
   const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
+  const effectSource = fs.readFileSync(path.join(repoRoot, "renderer", "effect_defs.js"), "utf8");
+  const htmlSource = fs.readFileSync(path.join(repoRoot, "renderer", "index.html"), "utf8");
   assert.match(mainSource, /function hasKoreanText/);
   assert.match(mainSource, /hasKoreanText\(sampleText\)/);
-  assert.match(mainSource, /candidates\.push\(bold \? "malgunbd\.ttf" : "malgun\.ttf"\)/);
+  assert.match(mainSource, /function fontSupportsKoreanText/);
+  assert.match(mainSource, /fontSupportsKoreanText\(customPath, sampleText\) !== false/);
+  assert.match(mainSource, /AppleSDGothicNeo\.ttc/);
+  assert.match(mainSource, /malgunbd\.ttf/);
   assert.match(mainSource, /resolveDrawtextFontFile\(overlay\.fontFamily, overlay\.fontWeight, overlay\.fontFile, overlay\.text\)/);
+  assert.match(appSource, /const BASE_FONT_FAMILIES = \["Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans CJK KR"/);
   assert.match(appSource, /fontFamily: String\(defaults\.fontFamily \|\| "Malgun Gothic"\)/);
+  assert.match(appSource, /strokeWidth: Math\.max\(0, Number\(defaults\.strokeWidth \?\? 0\)\)/);
+  assert.match(effectSource, /fontFamily: "Malgun Gothic"/);
+  assert.match(effectSource, /strokeWidth: 0/);
+  assert.match(htmlSource, /value="0" \/>[\s\S]*?<span id="overlayStrokeWidthValue" class="miniValue">0px<\/span>/);
 });
 
 test("tiny combined render with background, chroma, subtitles, and drop-wave finalizes", { timeout: 45000 }, async () => {
