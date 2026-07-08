@@ -499,6 +499,7 @@
       selectionOrder: [],
       previewClipId: null,
       previewEditMode: "transform",
+      previewDragMode: null,
       videoCropModalOpen: false,
       videoCropDraft: null,
       activeLane: null,
@@ -3891,6 +3892,106 @@
     }
   }
 
+  function computeAnchoredResizeRect(startRect, handleName, pointer, frame, minWidth = 20, minHeight = 20) {
+    const frameLeft = Number(frame?.left || 0);
+    const frameTop = Number(frame?.top || 0);
+    const frameRight = frameLeft + Math.max(1, Number(frame?.width || 1));
+    const frameBottom = frameTop + Math.max(1, Number(frame?.height || 1));
+    const startLeft = Number(startRect?.left || 0);
+    const startTop = Number(startRect?.top || 0);
+    const startRight = startLeft + Math.max(1, Number(startRect?.width || 1));
+    const startBottom = startTop + Math.max(1, Number(startRect?.height || 1));
+    const minW = Math.min(Math.max(4, Number(minWidth || 20)), Math.max(4, frameRight - frameLeft));
+    const minH = Math.min(Math.max(4, Number(minHeight || 20)), Math.max(4, frameBottom - frameTop));
+    let left = startLeft;
+    let right = startRight;
+    let top = startTop;
+    let bottom = startBottom;
+    const px = Math.max(frameLeft, Math.min(frameRight, Number(pointer?.x || 0)));
+    const py = Math.max(frameTop, Math.min(frameBottom, Number(pointer?.y || 0)));
+
+    if (String(handleName).includes("e")) right = Math.max(left + minW, Math.min(frameRight, px));
+    if (String(handleName).includes("w")) left = Math.min(right - minW, Math.max(frameLeft, px));
+    if (String(handleName).includes("s")) bottom = Math.max(top + minH, Math.min(frameBottom, py));
+    if (String(handleName).includes("n")) top = Math.min(bottom - minH, Math.max(frameTop, py));
+
+    return { left, top, width: Math.max(minW, right - left), height: Math.max(minH, bottom - top) };
+  }
+
+  function applyOverlayResizeRect(overlay, before, nextRect, startBox, handleName, shiftKey = false) {
+    const frame = startBox?.frame;
+    if (!overlay || !before || !frame || !nextRect) return;
+    const frameWidth = Math.max(1, Number(frame.width || 1));
+    const frameHeight = Math.max(1, Number(frame.height || 1));
+    const minSize = Math.max(1, Number(frame.minSize || Math.min(frameWidth, frameHeight)));
+    const width = Math.max(4, Number(nextRect.width || 4));
+    const height = Math.max(4, Number(nextRect.height || 4));
+    const centerX = Number(nextRect.left || 0) + (width / 2);
+    const centerY = Number(nextRect.top || 0) + (height / 2);
+    const setCenter = () => {
+      overlay.x = Math.max(0, Math.min(1, (centerX - Number(frame.left || 0)) / frameWidth));
+      overlay.y = Math.max(0, Math.min(1, (centerY - Number(frame.top || 0)) / frameHeight));
+    };
+
+    if (overlay.overlayType === "text") {
+      const align = String(before.textAlign || "center");
+      if (align === "left") overlay.x = Math.max(0, Math.min(1, (Number(nextRect.left || 0) - Number(frame.left || 0)) / frameWidth));
+      else if (align === "right") overlay.x = Math.max(0, Math.min(1, ((Number(nextRect.left || 0) + width) - Number(frame.left || 0)) / frameWidth));
+      else overlay.x = Math.max(0, Math.min(1, (centerX - Number(frame.left || 0)) / frameWidth));
+      overlay.y = Math.max(0, Math.min(1, (Number(nextRect.top || 0) - Number(frame.top || 0)) / frameHeight));
+      overlay.boxWidth = Math.max(0.08, Math.min(1, width / frameWidth));
+      if (String(handleName || "").includes("n") || String(handleName || "").includes("s")) {
+        overlay.fontSize = Math.max(18, height / Math.max(0.1, Number(frame.scale || 1) * 1.45));
+      }
+      return;
+    }
+
+    setCenter();
+    if (overlay.overlayType === "circle") {
+      overlay.radiusX = Math.max(0.03, width / (minSize * 2));
+      overlay.radiusY = Math.max(0.03, height / (minSize * 2));
+      if (shiftKey) {
+        const unified = Math.max(0.03, (overlay.radiusX + overlay.radiusY) / 2);
+        overlay.radiusX = unified;
+        overlay.radiusY = unified;
+      }
+      overlay.radius = Math.max(overlay.radiusX, overlay.radiusY);
+      overlay.size = overlay.radius;
+    } else if (overlay.overlayType === "underline") {
+      overlay.width = Math.max(0.08, Math.min(1, width / frameWidth));
+      overlay.size = overlay.width;
+      overlay.lineThickness = Math.max(2, height / Math.max(0.1, Number(frame.scale || 1) * 2.6));
+    } else if (overlay.overlayType === "point_pop_line" || overlay.overlayType === "checkpoint_pop") {
+      const previousTotal = Math.max(0.02, Number(before.radius || 0.06) + Number(before.lineLength || 0.04));
+      const radiusShare = Math.max(0.22, Math.min(0.78, Number(before.radius || 0.06) / previousTotal));
+      const total = Math.max(0.02, Math.min(0.45, (Math.max(width, height) * 0.5) / minSize));
+      overlay.radius = Math.max(0.01, total * radiusShare);
+      overlay.lineLength = Math.max(0.01, total * (1 - radiusShare));
+      overlay.strokeWidth = Math.max(1, Math.min(24, Math.min(width, height) / Math.max(8, Number(frame.scale || 1) * 9)));
+      overlay.durationMs = Math.max(120, Math.round(Number(overlay.duration || before.duration || 0.56) * 1000));
+      overlay.jitter = overlay.spreadAmount;
+    } else if (overlay.overlayType === "drop_wave") {
+      overlay.radius = Math.max(0.03, Math.min(0.5, (Math.min(width, height) * 0.28) / minSize));
+      overlay.amplitude = Math.max(0, Math.min(0.12, (Math.abs(width - Number(startBox.width || width)) + Math.abs(height - Number(startBox.height || height))) / (minSize * 10)));
+    } else if (overlay.overlayType === "focus_box_draw" || overlay.overlayType === "soft_spotlight" || overlay.overlayType === "zoom_focus" || overlay.overlayType === "zoom_out_focus") {
+      overlay.boxWidth = Math.max(0.08, Math.min(1, width / frameWidth));
+      overlay.boxHeight = Math.max(0.08, Math.min(1, height / frameHeight));
+      if (overlay.overlayType === "focus_box_draw") overlay.strokeWidth = Math.max(1, Math.min(24, height / Math.max(8, Number(frame.scale || 1) * 12)));
+    } else if (overlay.overlayType === "highlight_bar_sweep") {
+      overlay.width = Math.max(0.08, Math.min(1, width / frameWidth));
+      overlay.boxHeight = Math.max(0.05, Math.min(1, height / frameHeight));
+    } else if (overlay.overlayType === "section_divider_slide") {
+      overlay.width = Math.max(0.12, Math.min(1, width / frameWidth));
+      overlay.lineThickness = Math.max(2, height / Math.max(0.1, Number(frame.scale || 1) * 4));
+    } else if (overlay.overlayType === "callout_line_draw") {
+      overlay.lineLength = Math.max(0.04, Math.min(0.8, Math.sqrt((width * width) + (height * height)) / minSize));
+      overlay.strokeWidth = Math.max(1, Math.min(24, Math.min(width, height) / Math.max(8, Number(frame.scale || 1) * 8)));
+    } else {
+      overlay.boxWidth = Math.max(0.12, Math.min(1, width / frameWidth));
+      overlay.fontSize = Math.max(18, height / Math.max(0.1, Number(frame.scale || 1) * 1.45));
+    }
+  }
+
   function bindPreviewOverlayInteraction(boxEl, handleEls, overlay, box) {
     const axisScale = (handleName, frame) => ({
       xScale: handleName.includes("w") ? -1 : (handleName.includes("e") ? 1 : 0),
@@ -3901,14 +4002,20 @@
     });
     const bindDrag = (target, mode, handleName = "") => {
       target.onmousedown = (e) => {
+        if (mode === "move" && e.target?.closest?.(".previewOverlayHandle")) return;
         e.preventDefault();
         e.stopPropagation();
+        try {
+          if (typeof target.setPointerCapture === "function" && e.pointerId != null) target.setPointerCapture(e.pointerId);
+        } catch {}
+        state.ui.previewDragMode = mode;
         const startX = e.clientX;
         const startY = e.clientY;
         const historyBefore = snapshotHistoryState();
         const before = JSON.parse(JSON.stringify(overlay));
         let armed = false;
         const onMove = (mv) => {
+          if (state.ui.previewDragMode !== mode) return;
           const dx = mv.clientX - startX;
           const dy = mv.clientY - startY;
           if (!armed) {
@@ -3917,6 +4024,24 @@
           }
           const frame = box.frame;
           const axes = axisScale(handleName, frame);
+          if (mode === "resize") {
+            const rootRect = els.dropZone?.getBoundingClientRect?.() || { left: 0, top: 0 };
+            const nextRect = computeAnchoredResizeRect(
+              box,
+              handleName,
+              {
+                x: Number(mv.clientX || 0) - Number(rootRect.left || 0),
+                y: Number(mv.clientY || 0) - Number(rootRect.top || 0)
+              },
+              frame,
+              Math.max(18, Number(frame.minSize || 1) * 0.035),
+              Math.max(14, Number(frame.minSize || 1) * 0.03)
+            );
+            applyOverlayResizeRect(overlay, before, nextRect, box, handleName, !!mv.shiftKey);
+            recalcTimeline();
+            renderAll();
+            return;
+          }
           let textResizePositionHandled = false;
           if (mode === "move") {
             overlay.x = Math.max(0, Math.min(1, before.x + (dx / Math.max(1, frame.width))));
@@ -4031,6 +4156,7 @@
         const onUp = () => {
           window.removeEventListener("mousemove", onMove);
           window.removeEventListener("mouseup", onUp);
+          if (state.ui.previewDragMode === mode) state.ui.previewDragMode = null;
           if (armed) commitHistorySnapshot(historyBefore);
         };
         window.addEventListener("mousemove", onMove);
@@ -4170,8 +4296,13 @@
       target.ondragstart = () => false;
       target.style.touchAction = "none";
       target.onmousedown = (e) => {
+        if (action === "move" && e.target?.closest?.(".previewVideoHandle,.previewVideoRotateHandle")) return;
         e.preventDefault();
         e.stopPropagation();
+        try {
+          if (typeof target.setPointerCapture === "function" && e.pointerId != null) target.setPointerCapture(e.pointerId);
+        } catch {}
+        state.ui.previewDragMode = action;
         const startX = e.clientX;
         const startY = e.clientY;
         const historyBefore = snapshotHistoryState();
@@ -4179,6 +4310,7 @@
         const beforeBox = getPreviewVideoBox(before);
         let armed = false;
         const onMove = (mv) => {
+          if (state.ui.previewDragMode !== action) return;
           const dx = mv.clientX - startX;
           const dy = mv.clientY - startY;
           if (!armed) {
@@ -4187,7 +4319,30 @@
           }
           const frame = box.layout.frame;
           const axes = axisScale(handleName, frame);
-          if (action === "rotate" && beforeBox?.layout) {
+          if (action === "resize" && beforeBox?.layout) {
+            const rootRect = els.dropZone?.getBoundingClientRect?.() || { left: 0, top: 0 };
+            const nextRect = computeAnchoredResizeRect(
+              beforeBox,
+              handleName,
+              {
+                x: Number(mv.clientX || 0) - Number(rootRect.left || 0),
+                y: Number(mv.clientY || 0) - Number(rootRect.top || 0)
+              },
+              frame,
+              Math.max(24, Number(frame.minSize || 1) * 0.05),
+              Math.max(24, Number(frame.minSize || 1) * 0.05)
+            );
+            clip.positionX = Math.max(-0.5, Math.min(1.5, ((Number(nextRect.left || 0) + (Number(nextRect.width || 0) / 2)) - Number(frame.left || 0)) / Math.max(1, Number(frame.width || 1))));
+            clip.positionY = Math.max(-0.5, Math.min(1.5, ((Number(nextRect.top || 0) + (Number(nextRect.height || 0) / 2)) - Number(frame.top || 0)) / Math.max(1, Number(frame.height || 1))));
+            clip.scaleX = Math.max(0.1, Number(before.scaleX || 1) * (Number(nextRect.width || beforeBox.width || 1) / Math.max(1, Number(beforeBox.width || 1))));
+            clip.scaleY = Math.max(0.1, Number(before.scaleY || 1) * (Number(nextRect.height || beforeBox.height || 1) / Math.max(1, Number(beforeBox.height || 1))));
+            if (mv.shiftKey) {
+              const unified = Math.max(0.1, ((Number(clip.scaleX || 1) + Number(clip.scaleY || 1)) * 0.5));
+              clip.scaleX = unified;
+              clip.scaleY = unified;
+            }
+            clip.placementPreset = "custom";
+          } else if (action === "rotate" && beforeBox?.layout) {
             const pivotX = Number(beforeBox.layout.rawLeftAbs || 0) + Number(beforeBox.layout.transformOriginX || 0);
             const pivotY = Number(beforeBox.layout.rawTopAbs || 0) + Number(beforeBox.layout.transformOriginY || 0);
             const startAngle = Math.atan2(startY - pivotY, startX - pivotX) * (180 / Math.PI);
@@ -4225,6 +4380,7 @@
         const onUp = () => {
           window.removeEventListener("mousemove", onMove);
           window.removeEventListener("mouseup", onUp);
+          if (state.ui.previewDragMode === action) state.ui.previewDragMode = null;
           if (armed) commitHistorySnapshot(historyBefore);
           else refresh();
         };
@@ -4244,8 +4400,13 @@
     };
     const bindDrag = (target, mode, handleName = "") => {
       target.onmousedown = (e) => {
+        if (mode === "move" && e.target?.closest?.(".previewVideoHandle,.cropPreviewHandle")) return;
         e.preventDefault();
         e.stopPropagation();
+        try {
+          if (typeof target.setPointerCapture === "function" && e.pointerId != null) target.setPointerCapture(e.pointerId);
+        } catch {}
+        state.ui.previewDragMode = mode;
         const startX = e.clientX;
         const startY = e.clientY;
         const before = normalizeVideoCropDraft(getVideoCropDraftForClip(clip) || {
@@ -4259,6 +4420,7 @@
         const cropSpanY = Math.max(0, Number(before.cropTop || 0) + Number(before.cropBottom || 0));
         let armed = false;
         const onMove = (mv) => {
+          if (state.ui.previewDragMode !== mode) return;
           const dx = mv.clientX - startX;
           const dy = mv.clientY - startY;
           if (!armed) {
@@ -4286,6 +4448,7 @@
         const onUp = () => {
           window.removeEventListener("mousemove", onMove);
           window.removeEventListener("mouseup", onUp);
+          if (state.ui.previewDragMode === mode) state.ui.previewDragMode = null;
           if (!armed) refresh();
         };
         window.addEventListener("mousemove", onMove);
@@ -4396,8 +4559,13 @@
     };
     const bindDrag = (target, mode, handleName = "") => {
       target.onmousedown = (e) => {
+        if (mode === "move" && e.target?.closest?.(".cropPreviewHandle")) return;
         e.preventDefault();
         e.stopPropagation();
+        try {
+          if (typeof target.setPointerCapture === "function" && e.pointerId != null) target.setPointerCapture(e.pointerId);
+        } catch {}
+        state.ui.previewDragMode = mode;
         const startX = e.clientX;
         const startY = e.clientY;
         const historyBefore = snapshotHistoryState();
@@ -4406,6 +4574,7 @@
         const cropSpanY = Math.max(0, Number(before.cropTop || 0) + Number(before.cropBottom || 0));
         let armed = false;
         const onMove = (mv) => {
+          if (state.ui.previewDragMode !== mode) return;
           const dx = mv.clientX - startX;
           const dy = mv.clientY - startY;
           if (!armed) {
@@ -4436,6 +4605,7 @@
         const onUp = () => {
           window.removeEventListener("mousemove", onMove);
           window.removeEventListener("mouseup", onUp);
+          if (state.ui.previewDragMode === mode) state.ui.previewDragMode = null;
           if (armed) commitHistorySnapshot(historyBefore);
           else refresh();
         };
@@ -4643,6 +4813,63 @@
     });
     if (!matchedClipId) return null;
     return state.project.videoClips.find((clip) => clip.id === matchedClipId) || null;
+  }
+
+  function getActiveVideoClipAt(timeSec, preferredSection = null) {
+    const time = Math.max(0, Number(timeSec || 0));
+    const matches = (state.project.videoClips || []).filter((clip) => {
+      const start = Math.max(0, Number(clip?.start || 0));
+      const end = start + Math.max(MIN_TIMELINE_CLIP_SEC, getVideoClipTimelineDuration(clip));
+      return time >= start - 1e-6 && time <= end + 1e-6;
+    });
+    if (!matches.length) return null;
+    const section = Math.max(1, Number(preferredSection || state.ui.activeSection?.video || 1));
+    return matches.find((clip) => Math.max(1, Number(clip.section || 1)) === section) || matches[0] || null;
+  }
+
+  function getDefaultVideoClipForEditTool() {
+    return getSelectedVideoClip()
+      || getActiveVideoClipAt(state.ui.currentTime)
+      || (state.project.videoClips || [])[0]
+      || null;
+  }
+
+  async function applyChromaKeyToolToClip(targetClip, options = {}) {
+    if (!targetClip?.id) return false;
+    const targetId = String(targetClip.id);
+    const targetSection = Math.max(1, Number(targetClip.section || options.section || 1));
+    const applied = runProjectMutationWithHistory(() => {
+      const clip = state.project.videoClips.find((item) => item.id === targetId);
+      if (!clip) return false;
+      ensureVideoChromaKeyDefaults(clip);
+      clip.chromaKeyEnabled = true;
+      return true;
+    });
+    if (applied === false) return false;
+    selectSingle("video", targetId, targetSection);
+    if (options.reveal !== false) {
+      const clip = state.project.videoClips.find((item) => item.id === targetId);
+      const start = Math.max(0, Number(clip?.start || 0));
+      const end = start + Math.max(MIN_TIMELINE_CLIP_SEC, getVideoClipTimelineDuration(clip));
+      const now = Number(state.ui.currentTime || 0);
+      if (!Number.isFinite(now) || now < start - 1e-6 || now > end + 1e-6) {
+        state.ui.currentTime = snapTimelineTimeSec(start);
+      }
+    }
+    focusVideoInspector();
+    renderAll();
+    await openVideoChromaEyedropper(targetId);
+    return true;
+  }
+
+  async function activateEditTool(type) {
+    if (type !== "chroma_key") return false;
+    const targetClip = getDefaultVideoClipForEditTool();
+    if (!targetClip) {
+      toast("크로마키를 적용할 영상 클립을 먼저 선택하세요.", 1800);
+      return false;
+    }
+    return applyChromaKeyToolToClip(targetClip, { reveal: true });
   }
 
   async function openVideoChromaEyedropper(clipId = null) {
@@ -8430,14 +8657,15 @@
         color: theme.primary,
         radius: 0.12,
         size: 0.12,
-        strokeWidth: 6,
+        strokeWidth: 5,
         sparkleCount: 4,
         sparkleDistance: 0.03,
         drawDuration: 0.54,
         holdDuration: 0.22,
         fadeOutDuration: 0.24,
         duration: 1.0,
-        opacity: 0.96,
+        opacity: 0.92,
+        easing: "easeOutCubic",
         y: 0.46
       };
     }
@@ -8454,7 +8682,8 @@
         holdDuration: 0.2,
         fadeOutDuration: 0.24,
         duration: 0.88,
-        opacity: 0.96
+        opacity: 0.96,
+        easing: "easeOutQuart"
       };
     }
     if (type === "point_pop_line") {
@@ -8463,13 +8692,14 @@
         color: theme.primary,
         radius: 0.16,
         lineLength: 0.11,
-        strokeWidth: 6,
-        lineCount: 10,
-        spreadAmount: 0.16,
-        jitter: 0.16,
-        durationMs: 540,
-        duration: 0.54,
-        opacity: 0.98
+        strokeWidth: 4.5,
+        lineCount: 6,
+        spreadAmount: 0.12,
+        jitter: 0.12,
+        durationMs: 560,
+        duration: 0.56,
+        opacity: 0.92,
+        easing: "easeOutBackSoft"
       };
     }
     if (type === "focus_box_draw") {
@@ -8553,11 +8783,12 @@
         radius: 0.08,
         lineLength: 0.06,
         strokeWidth: 5,
-        lineCount: 8,
+        lineCount: 6,
         spreadAmount: 0.12,
         jitter: 0.12,
         durationMs: 760,
-        duration: 0.76
+        duration: 0.76,
+        easing: "easeOutBackSoft"
       };
     }
     if (type === "section_divider_slide") {
@@ -8598,8 +8829,8 @@
   function preparePalettePreviewCanvas(canvas) {
     const bounds = canvas.getBoundingClientRect?.() || { width: canvas.clientWidth || 0, height: canvas.clientHeight || 0 };
     const parentBounds = canvas.parentElement?.getBoundingClientRect?.() || { width: canvas.parentElement?.clientWidth || 0, height: canvas.parentElement?.clientHeight || 0 };
-    const cssWidth = Math.max(1, Math.round(bounds.width || canvas.clientWidth || parentBounds.width || 116));
-    const cssHeight = Math.max(1, Math.round(bounds.height || canvas.clientHeight || parentBounds.height || Math.round(cssWidth * 9 / 16)));
+    const cssWidth = Math.max(1, Math.round(parentBounds.width || bounds.width || canvas.clientWidth || 116));
+    const cssHeight = Math.max(1, Math.round(parentBounds.height || bounds.height || canvas.clientHeight || Math.round(cssWidth * 9 / 16)));
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== Math.round(cssWidth * dpr) || canvas.height !== Math.round(cssHeight * dpr)) {
       canvas.width = Math.round(cssWidth * dpr);
@@ -8887,6 +9118,7 @@
     let running = false;
     let disposed = false;
     let cycleStartMs = 0;
+    let staticRetryCount = 0;
 
     function renderStatic() {
       drawTransitionPalettePreviewCanvas(canvas, item.type, item.type === "fade" ? 0.42 : 0.5, { animated: false });
@@ -9000,17 +9232,38 @@
         currentTime: currentTimeSec,
         resolutionName: "HD",
         aspectRatio: "16:9",
-        drawBackground: drawPaletteCityBackground
+        drawBackground: drawPaletteCityBackground,
+        previewMode: "palette",
+        hideEditorChrome: true
       });
       previewEl.classList.toggle("hasCanvas", rendered !== false);
       previewEl.classList.toggle("hasError", rendered === false);
+      return rendered !== false;
     }
 
     function renderStatic() {
+      running = false;
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      if (loopTimerId) {
+        clearTimeout(loopTimerId);
+        loopTimerId = 0;
+      }
       drawFrame(Math.min(0.35, Number(overlay.duration || 1) * 0.45));
       previewEl.classList.remove("isPreviewing");
       cardEl.classList.remove("isPreviewing");
       cycleStartMs = 0;
+      const bounds = canvas.getBoundingClientRect?.() || { width: 0, height: 0 };
+      if (!disposed && staticRetryCount < 5 && (bounds.width < 16 || bounds.height < 9)) {
+        staticRetryCount += 1;
+        requestAnimationFrame(() => {
+          if (!disposed && !running) renderStatic();
+        });
+      } else {
+        staticRetryCount = 0;
+      }
     }
 
     function stopPreview() {
@@ -9086,6 +9339,7 @@
 
     return {
       element: previewEl,
+      renderStatic,
       dispose() {
         if (disposed) return;
         disposed = true;
@@ -9117,6 +9371,8 @@
       if (previewController?.element) {
         div.classList.add("hasPreview");
         div.appendChild(previewController.element);
+        previewController.renderStatic?.();
+        requestAnimationFrame(() => previewController.renderStatic?.());
         palettePreviewDisposers.push(() => previewController.dispose());
       }
     }
@@ -9138,7 +9394,26 @@
     dragGlyph.textContent = "::";
     div.appendChild(dragGlyph);
 
+    let lastDragAt = 0;
+    if (typeof options.activate === "function") {
+      div.dataset.activatable = "true";
+      div.setAttribute("role", "button");
+      div.addEventListener("click", (e) => {
+        if (Date.now() - lastDragAt < 180) return;
+        e.preventDefault();
+        e.stopPropagation();
+        void options.activate(e);
+      });
+      div.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        e.stopPropagation();
+        void options.activate(e);
+      });
+    }
+
     div.addEventListener("dragstart", (e) => {
+      lastDragAt = Date.now();
       state.dragging.item = options.dragItem();
       window.__videosmithInternalDrag = true;
       if (e.dataTransfer) {
@@ -9154,6 +9429,7 @@
     });
 
     div.addEventListener("dragend", () => {
+      lastDragAt = Date.now();
       clearPaletteDragImage();
     });
 
@@ -9235,7 +9511,8 @@
       const div = createPaletteCard(item, {
         dragType: "edit-tool",
         dataset: { toolType: item.type },
-        dragItem: () => ({ kind: "edit_tool", type: item.type })
+        dragItem: () => ({ kind: "edit_tool", type: item.type }),
+        activate: () => activateEditTool(item.type)
       });
       els.editToolPalette?.appendChild(div);
     });
@@ -11222,19 +11499,9 @@
           toast("크로마키는 영상 클립에만 드롭할 수 있습니다.", 1800);
           return;
         }
-        runProjectMutationWithHistory(() => {
-          const clip = state.project.videoClips.find((item) => item.id === targetClip.id);
-          if (!clip) return false;
-          ensureVideoChromaKeyDefaults(clip);
-          clip.chromaKeyEnabled = true;
-          return true;
-        });
-        selectSingle("video", targetClip.id, targetClip.section || section || 1);
-        focusVideoInspector();
-        renderAll();
         window.__videosmithInternalDrag = false;
         clearTransitionDropState();
-        await openVideoChromaEyedropper(targetClip.id);
+        await applyChromaKeyToolToClip(targetClip, { section, reveal: true });
         return;
       }
 

@@ -4239,6 +4239,7 @@ body[data-theme="dark"]{
   --range-disabled-track:#1b2430;
   --range-disabled-thumb:#536174;
   --palette-card-bg:#111923;
+  --palette-card-border:#263241;
   --palette-card-hover-bg:#172231;
   --palette-card-active-border:#38bdf8;
   --preview-scrim:rgba(2,6,12,.28);
@@ -4328,6 +4329,7 @@ body[data-theme="light"]{
   --range-disabled-track:#d7dde7;
   --range-disabled-thumb:#aab4c2;
   --palette-card-bg:#ffffff;
+  --palette-card-border:#c7d0dc;
   --palette-card-hover-bg:#eef4fb;
   --palette-card-active-border:#2563eb;
   --preview-scrim:rgba(255,255,255,.16);
@@ -4606,7 +4608,7 @@ textarea{
 body[data-theme="dark"] .paletteItem,
 body[data-theme="light"] .paletteItem{
   border-radius:4px;
-  border:1px solid var(--border);
+  border:1px solid var(--palette-card-border, var(--border));
   background:var(--palette-card-bg);
   box-shadow:none;
   transform:none;
@@ -4621,6 +4623,13 @@ body[data-theme="light"] .paletteItem{
 .paletteItem:focus-visible{
   outline:2px solid color-mix(in srgb, var(--accent2) 70%, transparent);
   outline-offset:2px;
+}
+.paletteItem[data-drag-type="edit-tool"]{
+  cursor:pointer;
+}
+.paletteItem[data-drag-type="edit-tool"] .dragGlyph{
+  color:var(--muted);
+  opacity:.62;
 }
 .paletteItem.hasPreview,
 #transitionPalette .paletteItem.hasPreview,
@@ -4642,7 +4651,7 @@ body[data-theme="light"] .paletteItem{
   min-width:116px;
   min-height:64px;
   aspect-ratio:16 / 9;
-  border-radius:4px;
+  border-radius:3px;
   border-color:var(--palette-preview-border);
   background:var(--palette-preview-bg);
   box-shadow:none;
@@ -5104,6 +5113,7 @@ body.fade-dragging .fadeLabel{
   height:100%;
   display:block;
   opacity:1;
+  visibility:visible;
   z-index:1;
   pointer-events:none;
 }

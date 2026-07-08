@@ -13,7 +13,16 @@
     }
 
     tabs.forEach((tab) => {
-      tab.addEventListener("click", () => apply(tab.dataset.tab));
+      if (!tab.getAttribute("type")) tab.setAttribute("type", "button");
+      tab.addEventListener("click", (event) => {
+        event.preventDefault();
+        apply(tab.dataset.tab);
+      });
+      tab.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        apply(tab.dataset.tab);
+      });
     });
 
     if (activeTab) apply(activeTab);

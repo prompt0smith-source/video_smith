@@ -198,6 +198,23 @@ test("editor UI wires aspect ratio and timeline section controls", () => {
   assert.match(styles, /button,[\s\S]*user-select:none/);
 });
 
+test("edit tool tabs and chroma key palette card stay clickable", () => {
+  const html = fs.readFileSync(path.join(repoRoot, "renderer", "index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
+  const tabsSource = fs.readFileSync(path.join(repoRoot, "renderer", "tool_tabs.js"), "utf8");
+  const styles = fs.readFileSync(path.join(repoRoot, "renderer", "styles.css"), "utf8");
+
+  assert.match(html, /<button type="button" class="sheetTab active" data-tab="edit"/);
+  assert.match(tabsSource, /event\.preventDefault\(\);[\s\S]*apply\(tab\.dataset\.tab\)/);
+  assert.match(tabsSource, /event\.key !== "Enter" && event\.key !== " "/);
+  assert.match(appSource, /function activateEditTool\(type\)/);
+  assert.match(appSource, /activate: \(\) => activateEditTool\(item\.type\)/);
+  assert.match(appSource, /div\.setAttribute\("role", "button"\)/);
+  assert.match(appSource, /e\.key !== "Enter" && e\.key !== " "/);
+  assert.match(appSource, /function applyChromaKeyToolToClip\(targetClip/);
+  assert.match(styles, /\.paletteItem\[data-drag-type="edit-tool"\]\{[\s\S]*cursor:pointer/);
+});
+
 test("new render publishes job/session identity and starts at 0%", async () => {
   const api = loadMainHarness();
   const deferred = makeDeferred();
@@ -510,6 +527,10 @@ test("VideoSmith project files, preview resize, and compact timeline controls st
   assert.match(appSource, /function createPaletteDragImage/);
   assert.match(appSource, /setDragImage\(dragImage, 18, 18\)/);
   assert.match(appSource, /kind: "background"[\s\S]*color: previewColor/);
+  assert.match(appSource, /function computeAnchoredResizeRect/);
+  assert.match(appSource, /function applyOverlayResizeRect/);
+  assert.match(appSource, /previewDragMode = mode/);
+  assert.match(appSource, /setPointerCapture/);
   assert.match(cssSource, /\.clipOptionsIcon/);
   assert.match(cssSource, /--clip-option-bg/);
   assert.match(cssSource, /\.dragPreviewGhost/);
@@ -521,6 +542,33 @@ test("VideoSmith project files, preview resize, and compact timeline controls st
   assert.match(koSource, /프로젝트 불러오기/);
   assert.match(enSource, /Save Project \(Ctrl\+S\)/);
   assert.match(enSource, /Load Project/);
+});
+
+test("FX palette previews render over city background without editor chrome", () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
+  const overlaySource = fs.readFileSync(path.join(repoRoot, "renderer", "overlay_engine.js"), "utf8");
+  const effectSource = fs.readFileSync(path.join(repoRoot, "renderer", "effect_defs.js"), "utf8");
+  const cssSource = fs.readFileSync(path.join(repoRoot, "renderer", "styles.css"), "utf8");
+  const citySource = fs.readFileSync(path.join(repoRoot, "renderer", "assets", "preview_city_bg.svg"), "utf8");
+
+  assert.match(citySource, /viewBox="0 0 1280 720"/);
+  assert.match(citySource, /softNoise/);
+  assert.match(appSource, /new URL\("\.\/assets\/preview_city_bg\.svg", window\.location\.href\)\.href/);
+  assert.match(appSource, /function createEffectCardPreview/);
+  assert.match(appSource, /previewMode: "palette"/);
+  assert.match(appSource, /hideEditorChrome: true/);
+  assert.match(appSource, /previewController\.renderStatic\?\.\(\)/);
+  assert.match(appSource, /staticRetryCount < 5/);
+  assert.match(overlaySource, /function easeOutQuart/);
+  assert.match(overlaySource, /function easeOutBackSoft/);
+  assert.match(overlaySource, /function easeInOutCubic/);
+  assert.match(overlaySource, /parentBounds\.width/);
+  assert.match(overlaySource, /options\.previewMode === "palette" \|\| options\.hideEditorChrome/);
+  assert.match(overlaySource, /drawBackground\(ctx, frame\.left, frame\.top, frame\.width, frame\.height/);
+  assert.match(effectSource, /easing: "easeOutBackSoft"/);
+  assert.match(effectSource, /easing: "easeOutQuart"/);
+  assert.match(cssSource, /--palette-card-border/);
+  assert.match(cssSource, /\.palettePreviewCanvas\{[\s\S]*visibility:visible/);
 });
 
 test("korean drawtext subtitles prefer a Korean-capable font", () => {

@@ -140,9 +140,40 @@
     const raw = Math.sin(((seed + 1) * 12.9898) + ((index + 1) * 78.233) + (salt * 37.719)) * 43758.5453;
     return raw - Math.floor(raw);
   }
+  function clamp01(v) {
+    return Math.max(0, Math.min(1, Number(v) || 0));
+  }
+  function easeOutCubic(t) {
+    t = clamp01(t);
+    return 1 - Math.pow(1 - t, 3);
+  }
+  function easeInOutCubic(t) {
+    t = clamp01(t);
+    return t < 0.5
+      ? 4 * t * t * t
+      : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+  function easeOutQuart(t) {
+    t = clamp01(t);
+    return 1 - Math.pow(1 - t, 4);
+  }
+  function easeOutBackSoft(t) {
+    t = clamp01(t);
+    const c1 = 1.12;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+  }
+  function easePulse(t) {
+    t = clamp01(t);
+    return t < 0.5 ? easeOutCubic(t * 2) : 1 - easeOutCubic((t - 0.5) * 2);
+  }
   function getEased(progress, easing = "linear") {
-    const p = clamp(progress, 0, 1);
-    if (easing === "easeOutCubic") return 1 - Math.pow(1 - p, 3);
+    const p = clamp01(progress);
+    if (easing === "easeOutCubic") return easeOutCubic(p);
+    if (easing === "easeInOutCubic") return easeInOutCubic(p);
+    if (easing === "easeOutQuart") return easeOutQuart(p);
+    if (easing === "easeOutBackSoft") return easeOutBackSoft(p);
+    if (easing === "easePulse") return easePulse(p);
     if (easing === "easeInOutQuad") return p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
     if (easing === "fastFocusZoom" && zoomMotion?.fastFocusZoomEase) return zoomMotion.fastFocusZoomEase(p);
     return p;
@@ -356,7 +387,8 @@
     if (localTime <= drawDuration) return { localTime, alpha: opacity, drawProgress: getEased(localTime / drawDuration, overlay.easing || defaults.easing || "easeOutCubic"), visibleProgress: getEased(localTime / drawDuration, overlay.easing || defaults.easing || "easeOutCubic"), fadeProgress: 0, phase: "draw", totalDuration: total };
     if (localTime <= drawDuration + holdDuration) return { localTime, alpha: opacity, drawProgress: 1, visibleProgress: 1, fadeProgress: 0, phase: "hold", totalDuration: total };
     const fadeProgress = clamp((localTime - drawDuration - holdDuration) / Math.max(0.01, fadeDuration), 0, 1);
-    return { localTime, alpha: opacity * (1 - fadeProgress), drawProgress: 1, visibleProgress: 1 - fadeProgress, fadeProgress, phase: "fade", totalDuration: total };
+    const fadeEase = easeInOutCubic(fadeProgress);
+    return { localTime, alpha: opacity * (1 - fadeEase), drawProgress: 1, visibleProgress: 1 - fadeEase, fadeProgress: fadeEase, phase: "fade", totalDuration: total };
   }
   function getOverlayPhase(overlay, currentTime) {
     if (!overlay) return null;
@@ -515,8 +547,9 @@
     if (!canvas) return null;
     const dpr = window.devicePixelRatio || 1;
     const bounds = canvas.getBoundingClientRect?.() || { width: canvas.clientWidth || 1, height: canvas.clientHeight || 1 };
-    const cssWidth = Math.max(1, Math.round(bounds.width || canvas.clientWidth || 1));
-    const cssHeight = Math.max(1, Math.round(bounds.height || canvas.clientHeight || 1));
+    const parentBounds = canvas.parentElement?.getBoundingClientRect?.() || { width: canvas.parentElement?.clientWidth || 0, height: canvas.parentElement?.clientHeight || 0 };
+    const cssWidth = Math.max(1, Math.round(parentBounds.width || bounds.width || canvas.clientWidth || 116));
+    const cssHeight = Math.max(1, Math.round(parentBounds.height || bounds.height || canvas.clientHeight || Math.round(cssWidth * 9 / 16)));
     if (canvas.width !== Math.round(cssWidth * dpr) || canvas.height !== Math.round(cssHeight * dpr)) {
       canvas.width = Math.round(cssWidth * dpr);
       canvas.height = Math.round(cssHeight * dpr);
@@ -633,6 +666,12 @@
     const seed = hashString(overlay.id);
     ctx.save();
     ctx.globalAlpha = clamp(phase.alpha, 0, 1);
+    ctx.strokeStyle = withAlpha(overlay.color || "#60a5fa", 0.22);
+    ctx.lineWidth = Math.max(1.4, strokeWidth * 1.7);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, radiusX + (strokeWidth * 0.42), radiusY + (strokeWidth * 0.42), 0, -Math.PI / 2, (-Math.PI / 2) + (Math.PI * 2 * clamp(phase.drawProgress, 0, 1)), false);
+    ctx.stroke();
     ctx.strokeStyle = overlay.color || "#ffdb4d";
     ctx.lineWidth = strokeWidth;
     ctx.lineCap = "round";
@@ -699,7 +738,7 @@
     ctx.stroke();
     ctx.restore();
   }
-  function drawFocusBoxEffect(ctx, frame, overlay, phase) {
+  function drawFocusBoxEffect(ctx, frame, overlay, phase, options = {}) {
     const boxWidth = Math.max(36, frame.width * Math.max(0.08, Number(overlay.boxWidth || 0.28)));
     const boxHeight = Math.max(24, frame.height * Math.max(0.06, Number(overlay.boxHeight || 0.18)));
     const x = frame.left + frame.width * clamp(Number(overlay.x ?? 0.5), 0, 1) - (boxWidth / 2);
@@ -707,6 +746,31 @@
     const strokeWidth = Math.max(2, Number(overlay.strokeWidth || 6) * frame.scale);
     ctx.save();
     ctx.globalAlpha = clamp(phase.alpha, 0, 1);
+    if (options.previewMode === "palette" || options.hideEditorChrome) {
+      const corner = Math.min(boxWidth, boxHeight) * 0.22;
+      const progress = clamp(phase.drawProgress, 0, 1);
+      ctx.strokeStyle = withAlpha(overlay.color || "#38bdf8", 0.78);
+      ctx.lineWidth = Math.max(1.4, strokeWidth * 0.48);
+      ctx.lineCap = "round";
+      ctx.shadowColor = withAlpha(overlay.color || "#38bdf8", 0.28);
+      ctx.shadowBlur = Math.max(4, strokeWidth * 1.2);
+      [
+        [x, y, 1, 1],
+        [x + boxWidth, y, -1, 1],
+        [x + boxWidth, y + boxHeight, -1, -1],
+        [x, y + boxHeight, 1, -1]
+      ].forEach(([px, py, sx, sy], index) => {
+        const local = clamp((progress - (index * 0.045)) / 0.82, 0, 1);
+        if (local <= 0) return;
+        ctx.beginPath();
+        ctx.moveTo(px, py + (sy * corner * local));
+        ctx.lineTo(px, py);
+        ctx.lineTo(px + (sx * corner * local), py);
+        ctx.stroke();
+      });
+      ctx.restore();
+      return;
+    }
     ctx.strokeStyle = overlay.color || "#38bdf8";
     ctx.lineWidth = strokeWidth;
     ctx.lineJoin = "round";
@@ -743,7 +807,7 @@
     const cy = frame.top + frame.height * clamp(Number(overlay.y ?? 0.48), 0, 1);
     const boxWidth = Math.max(48, frame.width * Math.max(0.08, Number(overlay.boxWidth || 0.26)));
     const boxHeight = Math.max(30, frame.height * Math.max(0.05, Number(overlay.boxHeight || 0.16)));
-    const scale = 0.78 + (0.22 * clamp(phase.drawProgress, 0, 1));
+    const scale = 0.78 + (0.22 * easeOutCubic(phase.drawProgress));
     const rx = (boxWidth / 2) * scale;
     const ry = (boxHeight / 2) * scale;
     const gradient = ctx.createRadialGradient(cx, cy, Math.max(2, Math.min(rx, ry) * 0.08), cx, cy, Math.max(rx, ry));
@@ -804,7 +868,7 @@
     const targetCenterX = frame.left + frame.width * clamp(Number(overlay.x ?? 0.5), 0, 1);
     const y = frame.top + frame.height * clamp(Number(overlay.y ?? 0.24), 0, 1);
     const slideTravel = Math.min(80, totalWidth * 0.18);
-    const progress = clamp(phase.drawProgress, 0, 1);
+    const progress = easeOutQuart(phase.drawProgress);
     const currentX = (targetCenterX - (totalWidth / 2)) - ((1 - progress) * slideTravel);
     const visibleWidth = Math.max(2, totalWidth * (0.34 + (0.66 * progress)));
     const accentX = currentX + Math.max(8, visibleWidth * 0.18);
@@ -824,7 +888,7 @@
     const previewRadius = Math.max(12, state.reachPx * 0.64);
     const innerRadius = Math.max(4, previewRadius * 0.22);
     const outerRadius = Math.max(innerRadius + 2, previewRadius);
-    const waveRadius = Math.max(innerRadius + 6, innerRadius + (outerRadius - innerRadius) * Math.min(1, state.localTime * state.speed * 0.75));
+    const waveRadius = Math.max(innerRadius + 6, innerRadius + (outerRadius - innerRadius) * easeOutCubic(Math.min(1, state.localTime * state.speed * 0.75)));
     ctx.save();
     ctx.globalAlpha = Math.max(0.1, state.temporal * 0.9);
     const core = ctx.createRadialGradient(state.cx, state.cy, innerRadius * 0.1, state.cx, state.cy, outerRadius);
@@ -844,7 +908,7 @@
     ctx.stroke();
     ctx.restore();
   }
-  function drawZoomFocusEffect(ctx, frame, overlay, phase) {
+  function drawZoomFocusEffect(ctx, frame, overlay, phase, options = {}) {
     const boxWidth = Math.max(40, frame.width * Math.max(0.08, Number(overlay.boxWidth || 0.34)));
     const boxHeight = Math.max(28, frame.height * Math.max(0.08, Number(overlay.boxHeight || 0.24)));
     const x = frame.left + frame.width * clamp(Number(overlay.x ?? 0.5), 0, 1) - (boxWidth / 2);
@@ -852,6 +916,24 @@
     const guideColor = overlay.color || "#60a5fa";
     const accentColor = overlay.accentColor || "#ffffff";
     const lineWidth = Math.max(2, 4 * frame.scale);
+    if (options.previewMode === "palette" || options.hideEditorChrome) {
+      const cx = x + (boxWidth / 2);
+      const cy = y + (boxHeight / 2);
+      const focus = easeOutCubic(phase.drawProgress || phase.visibleProgress || 0);
+      const rx = boxWidth * (0.38 + (0.12 * focus));
+      const ry = boxHeight * (0.42 + (0.1 * focus));
+      ctx.save();
+      ctx.globalAlpha = clamp(phase.alpha, 0, 1);
+      ctx.globalCompositeOperation = "screen";
+      const glow = ctx.createRadialGradient(cx, cy, Math.max(2, Math.min(rx, ry) * 0.08), cx, cy, Math.max(rx, ry));
+      glow.addColorStop(0, withAlpha(accentColor, 0.32));
+      glow.addColorStop(0.42, withAlpha(guideColor, 0.18));
+      glow.addColorStop(1, withAlpha(guideColor, 0));
+      ctx.fillStyle = glow;
+      ctx.fillRect(frame.left, frame.top, frame.width, frame.height);
+      ctx.restore();
+      return;
+    }
     const loupeRadius = Math.max(12, frame.minSize * 0.045);
     const loupeX = x + boxWidth - loupeRadius * 0.3;
     const loupeY = y + boxHeight - loupeRadius * 0.3;
@@ -877,12 +959,12 @@
     ctx.stroke();
     ctx.restore();
   }
-  function drawFxOverlay(ctx, frame, overlay, phase) {
+  function drawFxOverlay(ctx, frame, overlay, phase, options = {}) {
     if (overlay.overlayType === "circle") return drawCircleEffect(ctx, frame, overlay, phase);
     if (overlay.overlayType === "underline") return drawUnderlineEffect(ctx, frame, overlay, phase);
     if (overlay.overlayType === "point_pop_line") return drawPointPopLineEffect(ctx, frame, overlay, phase);
-    if (overlay.overlayType === "focus_box_draw") return drawFocusBoxEffect(ctx, frame, overlay, phase);
-    if (overlay.overlayType === "zoom_focus" || overlay.overlayType === "zoom_out_focus") return drawZoomFocusEffect(ctx, frame, overlay, phase);
+    if (overlay.overlayType === "focus_box_draw") return drawFocusBoxEffect(ctx, frame, overlay, phase, options);
+    if (overlay.overlayType === "zoom_focus" || overlay.overlayType === "zoom_out_focus") return drawZoomFocusEffect(ctx, frame, overlay, phase, options);
     if (overlay.overlayType === "callout_line_draw") return drawCalloutLineEffect(ctx, frame, overlay, phase);
     if (overlay.overlayType === "soft_spotlight") return drawSoftSpotlightEffect(ctx, frame, overlay, phase);
     if (overlay.overlayType === "highlight_bar_sweep") return drawHighlightBarSweepEffect(ctx, frame, overlay, phase);
@@ -906,7 +988,7 @@
     const { ctx, frame } = prepared;
     fxOverlays.forEach((overlay) => {
       const phase = getOverlayPhase(overlay, options.currentTime || 0);
-      if (phase) drawFxOverlay(ctx, frame, overlay, phase);
+      if (phase) drawFxOverlay(ctx, frame, overlay, phase, options);
     });
   }
   function renderFxPreviewCanvas(canvas, overlay, options = {}) {
@@ -943,7 +1025,10 @@
       drawDropWaveThumbnailEffect(ctx, frame, overlay, phase);
       return true;
     }
-    drawFxOverlay(ctx, frame, overlay, phase);
+    drawFxOverlay(ctx, frame, overlay, phase, {
+      previewMode: options.previewMode || "",
+      hideEditorChrome: !!options.hideEditorChrome
+    });
     return true;
   }
   function renderFxFrameToDataUrl(options = {}) {
@@ -965,7 +1050,7 @@
       .filter((overlay) => overlay && overlay.overlayType !== "text" && overlay.overlayType !== "zoom_focus" && overlay.overlayType !== "zoom_out_focus" && overlay.overlayType !== "drop_wave")
       .forEach((overlay) => {
         const phase = getOverlayPhase(overlay, Number(options.currentTime || 0));
-        if (phase) drawFxOverlay(ctx, frame, overlay, phase);
+        if (phase) drawFxOverlay(ctx, frame, overlay, phase, { hideEditorChrome: true });
       });
     return canvas.toDataURL("image/png");
   }
@@ -1085,6 +1170,12 @@
     clearCanvas,
     getFrameBox,
     getOverlayPhase,
+    getEased,
+    easeOutCubic,
+    easeInOutCubic,
+    easeOutQuart,
+    easeOutBackSoft,
+    easePulse,
     getZoomFocusScale,
     getZoomOverlayState,
     getDropWaveDistortionState,

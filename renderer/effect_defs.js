@@ -12,11 +12,11 @@
   const fxDefinitions = {
     point_pop_line: {
       palette: { type: "point_pop_line", glyph: "FX", name: "Point Pop", desc: "Burst line accent for quick emphasis." },
-      defaults: { overlayType: "point_pop_line", color: "#38bdf8", radius: 0.07, lineLength: 0.045, strokeWidth: 5, lineCount: 10, spreadAmount: 0.18, jitter: 0.18, durationMs: 520, duration: 0.52, opacity: 0.96, easing: "easeOutCubic" }
+      defaults: { overlayType: "point_pop_line", color: "#38bdf8", radius: 0.064, lineLength: 0.04, strokeWidth: 4.5, lineCount: 6, spreadAmount: 0.13, jitter: 0.13, durationMs: 560, duration: 0.56, opacity: 0.92, easing: "easeOutBackSoft" }
     },
     underline: {
       palette: { type: "underline", glyph: "U", name: "Underline", desc: "Animated underline highlight for text or UI." },
-      defaults: { overlayType: "underline", color: "#38bdf8", accentColor: "#ffffff", width: 0.24, size: 0.24, lineThickness: 10, drawDuration: 0.9, holdDuration: 0.4, fadeOutDuration: 0.28, easing: "easeOutCubic", duration: 1.55, y: 0.78 }
+      defaults: { overlayType: "underline", color: "#38bdf8", accentColor: "#ffffff", width: 0.24, size: 0.24, lineThickness: 10, drawDuration: 0.9, holdDuration: 0.4, fadeOutDuration: 0.28, easing: "easeOutQuart", duration: 1.55, y: 0.78 }
     },
     focus_box_draw: {
       palette: { type: "focus_box_draw", glyph: "[]", name: "Focus Box", desc: "Draw a box around a target area." },
@@ -48,7 +48,7 @@
     },
     checkpoint_pop: {
       palette: { type: "checkpoint_pop", glyph: "C", name: "Checkpoint Pop", desc: "Short success marker pop animation." },
-      defaults: { overlayType: "checkpoint_pop", color: "#22c55e", accentColor: "#ffffff", x: 0.5, y: 0.48, radius: 0.052, lineLength: 0.032, strokeWidth: 4.5, lineCount: 8, spreadAmount: 0.12, jitter: 0.12, durationMs: 680, duration: 0.68, opacity: 0.98, easing: "easeOutCubic" }
+      defaults: { overlayType: "checkpoint_pop", color: "#22c55e", accentColor: "#ffffff", x: 0.5, y: 0.48, radius: 0.052, lineLength: 0.032, strokeWidth: 4.5, lineCount: 6, spreadAmount: 0.1, jitter: 0.1, durationMs: 680, duration: 0.68, opacity: 0.96, easing: "easeOutBackSoft" }
     },
     section_divider_slide: {
       palette: { type: "section_divider_slide", glyph: "D", name: "Divider Slide", desc: "Sliding divider accent for section changes." },
@@ -80,7 +80,7 @@
     },
     circle: {
       palette: { type: "circle", glyph: "O", name: "Circle Focus", desc: "Draw a circular focus ring around a target area, then let it fade away." },
-      defaults: { overlayType: "circle", color: "#60a5fa", radius: 0.11, size: 0.11, strokeWidth: 6, sparkleCount: 4, sparkleDistance: 0.035, drawDuration: 0.58, holdDuration: 0.46, fadeOutDuration: 0.28, duration: 1.42, opacity: 0.96, x: 0.5, y: 0.44 }
+      defaults: { overlayType: "circle", color: "#60a5fa", radius: 0.11, size: 0.11, strokeWidth: 5, sparkleCount: 4, sparkleDistance: 0.035, drawDuration: 0.58, holdDuration: 0.46, fadeOutDuration: 0.28, easing: "easeOutCubic", duration: 1.42, opacity: 0.92, x: 0.5, y: 0.44 }
     }
   };
 
