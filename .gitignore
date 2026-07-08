@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.zip
+*.log
+Thumbs.db
+Desktop.ini

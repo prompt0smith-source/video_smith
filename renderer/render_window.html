@@ -1,0 +1,57 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rendering</title>
+  <link rel="stylesheet" href="./render_window.css" />
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <div class="title">Rendering</div>
+      <button id="btnRenderSettings" class="ctrl">랜더링 설정</button>
+    </div>
+    <div id="renderSettingsPanel" class="settingsPanel hidden">
+      <div class="settingsModeRow">
+        <button id="btnRenderModeSwitch" class="ctrl mini">Switch to Audio Render</button>
+      </div>
+      <div class="row settingRow">
+        <label>프레임</label>
+        <select id="rwFps"></select>
+      </div>
+      <div class="row settingRow">
+        <label>해상도</label>
+        <select id="rwRes"></select>
+      </div>
+      <div class="row settingRow">
+        <label>비율</label>
+        <select id="rwAspect"></select>
+      </div>
+      <div class="row settingRow">
+        <label>형식</label>
+        <select id="rwFmt"></select>
+      </div>
+      <div id="audioFmtRow" class="row settingRow hidden">
+        <label>오디오 형식</label>
+        <select id="rwAudioFmt"></select>
+      </div>
+    </div>
+    <div id="renderDots" class="dots">Rendering</div>
+    <div class="bar"><div id="barFill" class="fill"></div></div>
+    <div id="meta" class="meta">0%</div>
+
+    <label class="check"><input id="chkOpenFolder" type="checkbox" /> 랜더링 완료 후 폴더 열기</label>
+
+    <div class="row">
+      <button id="btnResume" class="ctrl">Resume</button>
+      <button id="btnPause" class="ctrl">Pause</button>
+      <button id="btnStop" class="ctrl">Stop</button>
+      <button id="btnStart" class="ctrl primary">Start</button>
+      <button id="btnCancel" class="ctrl danger">Cancel</button>
+    </div>
+  </div>
+  <div class="copyrightMini">Copyright © 2026 Prompt0smith. All rights reserved.</div>
+  <script src="./render_window.js"></script>
+</body>
+</html>

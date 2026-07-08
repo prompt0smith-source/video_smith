@@ -1,0 +1,698 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file: blob:; media-src 'self' file: blob:; style-src 'self' 'unsafe-inline'; script-src 'self';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VideoSmith</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="brand">VideoSmith</div>
+      <div class="top-actions">
+        <button id="btnTheme" class="themeBtn" title="Theme" aria-label="Theme">
+          <span class="themeBtnSun" aria-hidden="true">◐</span>
+        </button>
+        <button id="btnSettings" class="gearBtn" title="Settings" aria-label="Settings">
+          <svg id="gearIcon" viewBox="0 0 64 64" width="24" height="24" aria-hidden="true">
+            <defs>
+              <linearGradient id="gearGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#f8fafc"/>
+                <stop offset="55%" stop-color="#cbd5e1"/>
+                <stop offset="100%" stop-color="#94a3b8"/>
+              </linearGradient>
+              <linearGradient id="gearShade" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="rgba(255,255,255,.75)"/>
+                <stop offset="100%" stop-color="rgba(15,23,42,.35)"/>
+              </linearGradient>
+            </defs>
+            <g>
+              <path fill="url(#gearGrad)" stroke="#000000" stroke-width="1.4" d="M55.5 35.8v-7.6l-5.8-1.6a18.8 18.8 0 0 0-1.7-4.2l2.9-5.3-5.4-5.4-5.3 2.9c-1.3-.8-2.7-1.4-4.2-1.7L34.4 7h-7.6l-1.6 5.9c-1.5.3-2.9.9-4.2 1.7l-5.3-2.9-5.4 5.4 2.9 5.3c-.8 1.3-1.4 2.7-1.7 4.2l-5.9 1.6v7.6l5.9 1.6c.3 1.5.9 2.9 1.7 4.2l-2.9 5.3 5.4 5.4 5.3-2.9c1.3.8 2.7 1.4 4.2 1.7l1.6 5.8h7.6l1.6-5.8c1.5-.3 2.9-.9 4.2-1.7l5.3 2.9 5.4-5.4-2.9-5.3c.8-1.3 1.4-2.7 1.7-4.2l5.8-1.6Z"/>
+              <circle cx="32" cy="32" r="11" fill="#cbd5e1" stroke="#000000" stroke-width="1.2"/>
+              <ellipse cx="28" cy="24" rx="18" ry="8" fill="url(#gearShade)"/>
+            </g>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="layout">
+      <section id="panelLeft" class="panel">
+        <div class="panelTitle"><span id="panelLeftTitleText" data-i18n="panelLeftTitle">1. 편집 도구</span></div>
+        <div class="sheetTabs" id="toolSheetTabs">
+          <button class="sheetTab active" data-tab="edit">편집 도구</button>
+          <button class="sheetTab" data-tab="transitions">화면 전환 효과</button>
+          <button class="sheetTab" data-tab="text">자막 및 텍스트</button>
+          <button class="sheetTab" data-tab="clips">클립 목록</button>
+          <button class="sheetTab" data-tab="effects">특수 효과</button>
+        </div>
+        <div class="sheetPanels">
+          <div class="sheetPanel active" data-tab-panel="edit">
+            <div class="section">
+              <div class="sectionTitle">편집 도구</div>
+              <div class="palette" id="editToolPalette"></div>
+              <div class="hint">영상 클립에 드래그하면 크로마키가 바로 적용되고 스포이드가 열립니다.</div>
+            </div>
+            <div class="section">
+              <div class="sectionTitle" data-i18n="sectionBackgroundClip">배경 색상</div>
+              <div class="formRow">
+                <label for="backgroundClipColorSelect" data-i18n="labelBackgroundClipColor">색상</label>
+                <select id="backgroundClipColorSelect"></select>
+              </div>
+              <div class="formRow renderColorRow">
+                <label for="backgroundClipColorInput">직접 색상</label>
+                <div class="inlineFieldStack renderColorField backgroundClipColorField">
+                  <input id="backgroundClipColorInput" type="color" value="#ffffff" />
+                  <input id="backgroundClipColorHex" type="text" value="#FFFFFF" maxlength="7" spellcheck="false" aria-label="Background clip color hex" />
+                  <button id="backgroundClipEyedropperBtn" type="button" class="smallBtn">스포이드</button>
+                </div>
+              </div>
+              <div class="palette" id="backgroundPalette"></div>
+              <div class="hint" data-i18n="hintBackgroundClip">타임라인 비디오 섹션으로 드래그하면 5초 배경 클립이 생성됩니다.</div>
+            </div>
+          </div>
+
+          <div class="sheetPanel" data-tab-panel="transitions">
+            <div class="section">
+              <div class="sectionTitle">화면 전환 효과</div>
+              <div class="palette" id="transitionPalette"></div>
+              <div class="hint">타임라인에서 클립 경계나 시작/끝 edge로 드래그하면 자동 스냅됩니다.</div>
+            </div>
+          </div>
+
+          <div class="sheetPanel" data-tab-panel="text">
+            <div class="section">
+              <div class="sectionTitle" data-i18n="sectionText">자막 및 텍스트 효과 (Text Overlays)</div>
+              <div class="palette" id="textPalette"></div>
+              <div class="hint" data-i18n="hintText">영상 영역으로 드래그하면 실제 텍스트 overlay clip이 생성됩니다.</div>
+            </div>
+            <div class="section overlayInspectorSection">
+              <div class="sectionTitle">텍스트 속성</div>
+              <div id="overlayInspectorEmpty" class="overlayInspectorEmpty">텍스트 overlay clip을 선택하면 여기서 바로 수정할 수 있습니다.</div>
+              <div id="overlayInspectorForm" class="overlayInspectorForm hidden">
+                <div class="formRow overlayFormRow">
+                  <label for="overlayTextInput">텍스트</label>
+                  <textarea id="overlayTextInput" rows="3" placeholder="설명 텍스트"></textarea>
+                </div>
+                <div class="formRow overlayFormRow">
+                  <label for="overlayFontSizeInput">크기</label>
+                  <input id="overlayFontSizeInput" type="range" min="18" max="160" step="1" value="64" />
+                  <span id="overlayFontSizeValue" class="miniValue">64px</span>
+                </div>
+                <div class="formRow overlayFormRow">
+                  <label for="overlayOpacityInput">투명도</label>
+                  <input id="overlayOpacityInput" type="range" min="0.1" max="1" step="0.05" value="1" />
+                  <span id="overlayOpacityValue" class="miniValue">100%</span>
+                </div>
+                <div class="formGridTwo">
+                  <div class="formRow overlayFormRow">
+                    <label for="overlayFadeInInput">Fade In</label>
+                    <input id="overlayFadeInInput" type="range" min="0" max="3" step="0.01" value="0" />
+                    <span id="overlayFadeInValue" class="miniValue">0.00s</span>
+                  </div>
+                  <div class="formRow overlayFormRow">
+                    <label for="overlayFadeOutInput">Fade Out</label>
+                    <input id="overlayFadeOutInput" type="range" min="0" max="3" step="0.01" value="0" />
+                    <span id="overlayFadeOutValue" class="miniValue">0.00s</span>
+                  </div>
+                </div>
+                <div class="videoInspectorBlock">
+                  <div class="videoInspectorSubTitle">자막 전환 효과</div>
+                  <div class="formGridTwo">
+                    <div class="formRow overlayFormRow">
+                      <label for="overlayTransitionInTypeInput">입장 효과</label>
+                      <select id="overlayTransitionInTypeInput"></select>
+                    </div>
+                    <div class="formRow overlayFormRow">
+                      <label for="overlayTransitionInDurationInput">입장 길이</label>
+                      <input id="overlayTransitionInDurationInput" type="range" min="0" max="2" step="0.01" value="0" />
+                      <span id="overlayTransitionInDurationValue" class="miniValue">0.00s</span>
+                    </div>
+                  </div>
+                  <div class="formGridTwo">
+                    <div class="formRow overlayFormRow">
+                      <label for="overlayTransitionOutTypeInput">퇴장 효과</label>
+                      <select id="overlayTransitionOutTypeInput"></select>
+                    </div>
+                    <div class="formRow overlayFormRow">
+                      <label for="overlayTransitionOutDurationInput">퇴장 길이</label>
+                      <input id="overlayTransitionOutDurationInput" type="range" min="0" max="2" step="0.01" value="0" />
+                      <span id="overlayTransitionOutDurationValue" class="miniValue">0.00s</span>
+                    </div>
+                  </div>
+                  <div class="formRow overlayFormRow">
+                    <label for="overlayTransitionStrengthInput">전환 강도</label>
+                    <input id="overlayTransitionStrengthInput" type="range" min="0.4" max="1.6" step="0.05" value="1" />
+                    <span id="overlayTransitionStrengthValue" class="miniValue">1.00x</span>
+                  </div>
+                </div>
+                <div class="formRow overlayFormRow">
+                  <label for="overlayPosXInput">X 위치</label>
+                  <input id="overlayPosXInput" type="range" min="0" max="1" step="0.01" value="0.5" />
+                  <span id="overlayPosXValue" class="miniValue">50%</span>
+                </div>
+                <div class="formRow overlayFormRow">
+                  <label for="overlayPosYInput">Y 위치</label>
+                  <input id="overlayPosYInput" type="range" min="0" max="1" step="0.01" value="0.82" />
+                  <span id="overlayPosYValue" class="miniValue">82%</span>
+                </div>
+                <div class="formGridTwo">
+                  <div class="formRow overlayFormRow">
+                    <label for="overlayColorInput">글자색</label>
+                    <div class="inlineFieldStack">
+                      <input id="overlayColorInput" type="color" value="#ffffff" />
+                      <label class="inlineCheck"><input id="overlayNoFillInput" type="checkbox" /> 없음</label>
+                    </div>
+                  </div>
+                  <div class="formRow overlayFormRow">
+                    <label for="overlayStrokeColorInput">윤곽선</label>
+                    <div class="inlineFieldStack">
+                      <input id="overlayStrokeColorInput" type="color" value="#000000" />
+                      <label class="inlineCheck"><input id="overlayNoStrokeInput" type="checkbox" /> 없음</label>
+                    </div>
+                  </div>
+                </div>
+                <div class="formGridTwo">
+                  <div class="formRow overlayFormRow">
+                    <label for="overlayStrokeWidthInput">윤곽 두께</label>
+                    <input id="overlayStrokeWidthInput" type="range" min="0" max="12" step="1" value="3" />
+                    <span id="overlayStrokeWidthValue" class="miniValue">3px</span>
+                  </div>
+                  <div class="formRow overlayFormRow">
+                    <label for="overlayFontWeightInput">굵기</label>
+                    <select id="overlayFontWeightInput">
+                      <option value="400">보통</option>
+                      <option value="700">굵게</option>
+                      <option value="900">강조</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="formGridTwo">
+                  <div class="formRow overlayFormRow">
+                    <label for="overlayFontFamilyInput">폰트</label>
+                    <select id="overlayFontFamilyInput">
+                      <option value="Arial">Arial</option>
+                      <option value="Pretendard">Pretendard</option>
+                      <option value="Malgun Gothic">Malgun Gothic</option>
+                      <option value="Georgia">Georgia</option>
+                      <option value="__add_custom_font__">+ 새 글씨체 추가하기...</option>
+                    </select>
+                  </div>
+                  <div class="formRow overlayFormRow">
+                    <label for="overlayTextAlignInput">정렬</label>
+                    <select id="overlayTextAlignInput">
+                      <option value="left">왼쪽</option>
+                      <option value="center">가운데</option>
+                      <option value="right">오른쪽</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sheetPanel" data-tab-panel="clips">
+            <div class="section">
+              <div class="sectionTitle" data-i18n="sectionClips">클립 목록</div>
+              <div id="clipList" class="clipList empty" data-i18n="emptyClips">아직 업로드된 파일이 없습니다.</div>
+            </div>
+            <div class="section videoInspectorSection">
+              <div class="sectionTitle" data-i18n="videoInspectorSectionTitle">영상 클립 속성</div>
+              <div id="videoInspectorEmpty" class="overlayInspectorEmpty" data-i18n="videoInspectorEmpty">타임라인에서 영상 클립의 우측 상단 옵션 버튼을 누르거나, video clip을 선택하면 여기서 표시 방식과 재생 구간을 조절할 수 있습니다.</div>
+              <div id="videoInspectorForm" class="overlayInspectorForm hidden">
+                <div class="videoInspectorHeader">
+                  <div id="videoInspectorTitle" class="videoInspectorTitle" data-i18n="videoInspectorNone">선택된 clip 없음</div>
+                  <div id="videoInspectorMeta" class="videoInspectorMeta"></div>
+                </div>
+
+                <div class="videoInspectorModeRow">
+                  <span class="videoInspectorSubTitle" data-i18n="videoPreviewEdit">Preview Edit</span>
+                  <div class="segmentedToggle">
+                    <button id="videoEditTransformBtn" type="button" class="segmentedToggleBtn active" data-i18n="videoTransform">Transform</button>
+                    <button id="videoEditCropBtn" type="button" class="segmentedToggleBtn" data-i18n="videoCrop">Crop</button>
+                  </div>
+                </div>
+
+                <div class="videoInspectorBlock">
+                  <div class="videoInspectorSubTitle" data-i18n="videoTransform">Transform</div>
+                  <div class="formRow overlayFormRow">
+                    <label for="videoScaleInput" data-i18n="videoScale">Scale</label>
+                    <input id="videoScaleInput" type="range" min="10" max="300" step="1" value="100" />
+                    <span id="videoScaleValue" class="miniValue">100%</span>
+                  </div>
+                  <div class="formGridTwo">
+                    <div class="formRow overlayFormRow">
+                      <label for="videoScaleXInput" data-i18n="videoScaleX">Scale X</label>
+                      <input id="videoScaleXInput" type="number" min="10" max="600" step="1" value="100" />
+                    </div>
+                    <div class="formRow overlayFormRow">
+                      <label for="videoScaleYInput" data-i18n="videoScaleY">Scale Y</label>
+                      <input id="videoScaleYInput" type="number" min="10" max="600" step="1" value="100" />
+                    </div>
+                  </div>
+                  <div class="formRow overlayFormRow">
+                    <label for="videoPosXInput" data-i18n="videoPositionX">Position X</label>
+                    <input id="videoPosXInput" type="range" min="-50" max="150" step="1" value="50" />
+                    <span id="videoPosXValue" class="miniValue">50%</span>
+                  </div>
+                  <div class="formRow overlayFormRow">
+                    <label for="videoPosYInput" data-i18n="videoPositionY">Position Y</label>
+                    <input id="videoPosYInput" type="range" min="-50" max="150" step="1" value="50" />
+                    <span id="videoPosYValue" class="miniValue">50%</span>
+                  </div>
+                  <div class="formGridTwo">
+                    <div class="formRow overlayFormRow">
+                      <label for="videoAnchorXInput" data-i18n="videoAnchorX">Anchor X</label>
+                      <input id="videoAnchorXInput" type="range" min="0" max="100" step="1" value="50" />
+                      <span id="videoAnchorXValue" class="miniValue">50%</span>
+                    </div>
+                    <div class="formRow overlayFormRow">
+                      <label for="videoAnchorYInput" data-i18n="videoAnchorY">Anchor Y</label>
+                      <input id="videoAnchorYInput" type="range" min="0" max="100" step="1" value="50" />
+                      <span id="videoAnchorYValue" class="miniValue">50%</span>
+                    </div>
+                  </div>
+                  <div class="formGridTwo">
+                    <div class="formRow overlayFormRow">
+                      <label for="videoRotationInput" data-i18n="videoRotation">Rotation</label>
+                      <input id="videoRotationInput" type="range" min="-180" max="180" step="1" value="0" />
+                      <span id="videoRotationValue" class="miniValue">0°</span>
+                    </div>
+                    <div class="formRow overlayFormRow">
+                      <label for="videoOpacityInput" data-i18n="videoOpacity">Opacity</label>
+                      <input id="videoOpacityInput" type="range" min="0" max="100" step="1" value="100" />
+                      <span id="videoOpacityValue" class="miniValue">100%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="videoInspectorBlock">
+                  <div class="videoInspectorSubTitle" data-i18n="videoCropVisibleArea">Crop / Visible Area</div>
+                  <div class="formRow overlayFormRow">
+                    <label for="videoFitModeInput" data-i18n="videoFitMode">Fit Mode</label>
+                    <select id="videoFitModeInput">
+                      <option value="contain" data-i18n="fitContain">Contain</option>
+                      <option value="fill" data-i18n="fitFill">Fill</option>
+                      <option value="stretch" data-i18n="fitStretch">Stretch</option>
+                    </select>
+                  </div>
+                  <div class="formGridTwo">
+                    <div class="formRow overlayFormRow">
+                      <label for="videoCropLeftInput" data-i18n="videoCropLeft">Crop Left</label>
+                      <input id="videoCropLeftInput" type="number" min="0" max="90" step="1" value="0" />
+                    </div>
+                    <div class="formRow overlayFormRow">
+                      <label for="videoCropRightInput" data-i18n="videoCropRight">Crop Right</label>
+                      <input id="videoCropRightInput" type="number" min="0" max="90" step="1" value="0" />
+                    </div>
+                  </div>
+                  <div class="formGridTwo">
+                    <div class="formRow overlayFormRow">
+                      <label for="videoCropTopInput" data-i18n="videoCropTop">Crop Top</label>
+                      <input id="videoCropTopInput" type="number" min="0" max="90" step="1" value="0" />
+                    </div>
+                    <div class="formRow overlayFormRow">
+                      <label for="videoCropBottomInput" data-i18n="videoCropBottom">Crop Bottom</label>
+                      <input id="videoCropBottomInput" type="number" min="0" max="90" step="1" value="0" />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="videoInspectorBlock">
+                  <div class="videoInspectorSubTitle">크로마키</div>
+                  <div class="formRow overlayFormRow chromaToggleRow">
+                    <label class="inlineCheck"><input id="videoChromaEnabledInput" type="checkbox" /> 크로마키 활성화</label>
+                    <button id="btnVideoResetChroma" type="button" class="smallBtn">크로마키 초기화</button>
+                  </div>
+                  <div class="formRow overlayFormRow chromaColorFieldRow">
+                    <label for="videoChromaColorInput">키 색상</label>
+                    <div class="inlineFieldStack chromaColorField">
+                      <input id="videoChromaColorInput" type="color" value="#00ff00" />
+                      <input id="videoChromaColorHex" type="text" value="#00ff00" maxlength="7" spellcheck="false" />
+                      <button id="videoChromaEyedropperBtn" type="button" class="smallBtn">스포이드</button>
+                    </div>
+                  </div>
+                  <div class="formRow overlayFormRow">
+                    <label for="videoChromaSimilarityInput">유사도</label>
+                    <input id="videoChromaSimilarityInput" type="range" min="1" max="60" step="1" value="14" />
+                    <span id="videoChromaSimilarityValue" class="miniValue">14%</span>
+                  </div>
+                  <div class="formRow overlayFormRow">
+                    <label for="videoChromaBlendInput">부드러움</label>
+                    <input id="videoChromaBlendInput" type="range" min="0" max="40" step="1" value="8" />
+                    <span id="videoChromaBlendValue" class="miniValue">8%</span>
+                  </div>
+                  <div class="formRow overlayFormRow">
+                    <label for="videoChromaReflectionInput">반사/음영 허용</label>
+                    <input id="videoChromaReflectionInput" type="range" min="0" max="50" step="1" value="0" />
+                    <span id="videoChromaReflectionValue" class="miniValue">0%</span>
+                  </div>
+                </div>
+
+                <div class="videoInspectorBlock">
+                  <div class="videoInspectorSubTitle" data-i18n="videoPlaybackRange">Playback Range</div>
+                  <div class="formGridTwo">
+                    <div class="formRow overlayFormRow">
+                      <label for="videoSourceInInput" data-i18n="videoSourceIn">Source In</label>
+                      <input id="videoSourceInInput" type="number" min="0" step="0.01" value="0" />
+                    </div>
+                    <div class="formRow overlayFormRow">
+                      <label for="videoSourceOutInput" data-i18n="videoSourceOut">Source Out</label>
+                      <input id="videoSourceOutInput" type="number" min="0.01" step="0.01" value="0.01" />
+                    </div>
+                  </div>
+                  <div id="videoPlaybackWindowHint" class="videoPlaybackWindowHint"></div>
+                </div>
+
+                <div class="videoInspectorBlock">
+                  <div class="videoInspectorSubTitle" data-i18n="videoPlacement">Placement</div>
+                  <div class="presetGrid">
+                    <button id="videoPresetCenter" type="button" class="smallBtn" data-i18n="videoPresetCenter">Center</button>
+                    <button id="videoPresetTopLeft" type="button" class="smallBtn" data-i18n="videoPresetTopLeft">Top Left</button>
+                    <button id="videoPresetTopRight" type="button" class="smallBtn" data-i18n="videoPresetTopRight">Top Right</button>
+                    <button id="videoPresetBottomLeft" type="button" class="smallBtn" data-i18n="videoPresetBottomLeft">Bottom Left</button>
+                    <button id="videoPresetBottomRight" type="button" class="smallBtn" data-i18n="videoPresetBottomRight">Bottom Right</button>
+                  </div>
+                </div>
+
+                <div class="videoInspectorActions">
+                  <button id="btnVideoResetTransform" type="button" class="btn" data-i18n="videoResetTransform">Transform Reset</button>
+                  <button id="btnVideoResetCrop" type="button" class="btn" data-i18n="videoResetCrop">Crop Reset</button>
+                  <button id="btnVideoResetAll" type="button" class="btn" data-i18n="videoResetAll">Full Reset</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sheetPanel" data-tab-panel="effects">
+            <div class="section">
+              <div class="sectionTitle">특수 효과</div>
+              <div class="palette" id="effectsPalette"></div>
+              <div class="hint">영상 영역으로 드래그하면 FX clip으로 배치됩니다.</div>
+              <div class="effectsPlaceholder">각 FX clip의 우측 상단 gear 버튼으로 옵션을 즉시 조절할 수 있습니다.</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="renderSettingsSection" class="section">
+          <div class="sectionTitle" data-i18n="sectionRender">렌더 설정</div>
+          <div class="formRow">
+            <label data-i18n="labelFps">프레임</label>
+            <select id="selFps"></select>
+          </div>
+          <div class="formRow">
+            <label data-i18n="labelRes">해상도</label>
+            <select id="selRes"></select>
+          </div>
+          <div class="formRow">
+            <label data-i18n="labelFmt">형식</label>
+            <select id="selFmt"></select>
+          </div>
+          <div class="formRow renderColorRow">
+            <label for="backgroundColorInput" data-i18n="labelBackgroundColor">배경 색상</label>
+            <div class="inlineFieldStack renderColorField">
+              <input id="backgroundColorInput" type="color" value="#000000" />
+              <input id="backgroundColorHex" type="text" value="#000000" maxlength="7" spellcheck="false" aria-label="Background color hex" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div id="splitterV" class="splitter splitterV" title="좌우 크기 조절"></div>
+
+      <section id="panelRight" class="panel">
+        <div class="panelTitle">
+          <span id="panelRightTitleText" data-i18n="panelRightTitle">2. 미리보기</span>
+          <div class="panelTitleRight">
+            <button id="btnPreviewAspectRatio" class="btn smallBtn aspectRatioBtn" type="button" title="화면 비율 설정">16:9</button>
+            <div id="autoSaveStatus" class="autoSaveStatus" aria-live="polite" title="5분마다 임시 저장됩니다.">
+              <span class="autoSaveSpinner" aria-hidden="true"></span>
+              <span id="autoSaveLabel" class="autoSaveLabel">Auto Save</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="dropZone" class="dropZone">
+          <video id="video" controlslist="nodownload" preload="metadata"></video>
+          <div id="dropHint" class="dropHint">
+            하단 타임라인에 동영상/오디오 파일을 드래그 & 드롭<br/>
+            (또는 상단 세팅 내부 파일 업로드 버튼)
+          </div>
+        </div>
+
+        <div id="transport" class="transport">
+          <button class="iconBtn" id="btnBack10" title="-10s" data-i18n-title="titleBack10">◀◀</button>
+          <button class="iconBtn" id="btnStop" title="정지" data-i18n-title="titleStop">■</button>
+          <button class="iconBtn" id="btnPause" title="일시정지" data-i18n-title="titlePause">❚❚</button>
+          <button class="iconBtn" id="btnPlay" title="재생" data-i18n-title="titlePlay">▶</button>
+          <button class="iconBtn" id="btnFwd10" title="+10s" data-i18n-title="titleFwd10">▶▶</button>
+          <div class="timeReadout">
+            <span id="curTime">0.00</span> / <span id="durTime">0.00</span>
+          </div>
+        </div>
+      </section>
+
+      <div id="splitterH" class="splitter splitterH" title="상하 크기 조절"></div>
+
+      <section id="bottom" class="panel">
+        <div class="panelTitle">
+          <span id="panelBottomTitleText" data-i18n="panelBottomTitle">3. 타임라인</span>
+          <div class="panelTitleRight">
+            <button id="btnAddVideoSection" class="btn smallBtn timelineSectionAddBtn" type="button" title="비디오 섹션 추가">+ Video</button>
+            <button id="btnAddAudioSection" class="btn smallBtn timelineSectionAddBtn" type="button" title="음성 섹션 추가">+ Audio</button>
+            <span id="uploadStatus" class="uploadStatus"></span>
+            <button id="btnRegion" class="btn regionOff" data-i18n-on="regionOn" data-i18n-off="regionOff">영역 지정 Off</button>
+          </div>
+        </div>
+
+        <div id="timelineViewport" class="timelineViewport">
+        <div id="timelineToolbar" class="timelineToolbar">
+          <div class="kbdHint">
+            <span class="kbd">S</span> <span data-i18n="kbdSplit">Split</span>,
+            <span class="kbd">M</span> <span data-i18n="kbdMerge">Merge</span>,
+            <span class="kbd">D</span> <span data-i18n="kbdDivide">Divide</span>,
+            <span class="kbd">Del</span> <span data-i18n="kbdDelete">Delete</span>,
+            <span class="kbd">Ctrl+A</span> <span data-i18n="kbdSelectAll">전체영역</span>
+          </div>
+          <div class="zoom">
+            <label data-i18n="labelZoom">Zoom</label>
+            <input id="zoom" type="range" min="20" max="200" value="90" />
+          </div>
+          <div id="renderStatus" class="renderStatus"></div>
+        </div>
+
+        <div id="ruler" class="ruler"></div>
+
+        <div id="videoTrack" class="track">
+          <div class="trackLabelCol" id="videoLabelCol"></div>
+          <div class="trackLane" id="videoLane"></div>
+        </div>
+
+        <div id="audioTrack" class="track">
+          <div class="trackLabelCol" id="audioLabelCol"></div>
+          <div class="trackLane" id="audioLane"></div>
+        </div>
+
+        <div id="playhead" class="playhead"><div class="handle"></div></div>
+        <div id="regionOverlay" class="regionOverlay hidden"></div>
+        <div id="regionStartHandle" class="regionHandle hidden" title="영역 시작 조절"></div>
+        <div id="regionEndHandle" class="regionHandle hidden" title="영역 끝 조절"></div>
+        </div>
+      </section>
+    </main>
+    <div id="copyrightBar">Copyright © 2026 Prompt0smith. All rights reserved.</div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <div id="timelineContextMenu" class="timelineContextMenu hidden">
+    <button id="ctxCopySection" class="ctxItem">
+      <span class="ctxIcon" aria-hidden="true"></span>
+      <span class="ctxLabel">섹션 복사</span>
+    </button>
+    <button id="ctxPasteSection" class="ctxItem">
+      <span class="ctxIcon" aria-hidden="true"></span>
+      <span class="ctxLabel">섹션 붙여넣기</span>
+    </button>
+    <button id="ctxDeleteSection" class="ctxItem">
+      <span class="ctxIcon" aria-hidden="true"></span>
+      <span class="ctxLabel">섹션 삭제</span>
+    </button>
+  </div>
+
+  <div id="modal" class="modal hidden">
+    <div class="modalCard">
+      <div class="modalTitle" data-i18n="alertTitle">Alert!</div>
+      <div id="modalBody" class="modalBody"></div>
+      <div class="modalActions">
+        <button id="modalOk" class="btn primary" data-i18n="btnOk">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="aspectRatioModal" class="modal hidden">
+    <div class="modalCard aspectRatioCard">
+      <div class="modalTitle">화면 비율 설정</div>
+      <div class="modalBody">
+        <div id="aspectRatioGrid" class="aspectRatioGrid"></div>
+      </div>
+      <div class="modalActions">
+        <button id="btnAspectRatioClose" class="btn primary" type="button">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="customFontModal" class="modal hidden">
+    <div class="modalCard customFontCard">
+      <div class="modalTitle customFontHeader">
+        <div>
+          <div>새 글씨체 추가</div>
+          <div class="customFontSubTitle">자막 렌더링에 사용할 로컬 폰트 파일을 등록합니다.</div>
+        </div>
+        <button id="btnCustomFontClose" class="iconBtn cropModalCloseBtn" type="button" aria-label="Close font dialog" title="닫기">✕</button>
+      </div>
+      <div class="modalBody customFontBody">
+        <div class="customFontNotice">
+          <b>넣을 파일</b>
+          <span>다운로드한 폰트의 <strong>.ttf</strong>, <strong>.otf</strong>, <strong>.woff</strong>, <strong>.woff2</strong> 파일을 선택하세요. 압축 파일(.zip)은 먼저 풀어야 합니다.</span>
+        </div>
+        <div class="formRow customFontRow">
+          <label for="customFontFileInput">폰트 파일</label>
+          <input id="customFontFileInput" type="file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" />
+        </div>
+        <div id="customFontFileHint" class="customFontFileHint">선택된 파일 없음</div>
+        <div class="formRow customFontRow">
+          <label for="customFontNameInput">표시 이름</label>
+          <input id="customFontNameInput" type="text" maxlength="48" placeholder="예: My Subtitle Font" />
+        </div>
+        <label class="customFontTerms">
+          <input id="customFontTermsCheck" type="checkbox" />
+          <span>폰트 배포 사이트 또는 구매처의 라이선스/약관을 직접 확인했으며, 상업적 사용·재배포·영상 삽입 권한 문제는 사용자 책임임에 동의합니다.</span>
+        </label>
+      </div>
+      <div class="modalActions">
+        <button id="btnCustomFontCancel" class="btn" type="button">취소</button>
+        <button id="btnCustomFontAdd" class="btn primary" type="button" disabled>동의하고 추가</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="videoCropModal" class="modal cropModal hidden">
+    <div class="modalCard cropModalCard">
+      <div class="modalTitle cropModalHeader">
+        <div>
+          <div data-i18n="videoCropPreviewTitle">Crop Preview</div>
+          <div id="videoCropModalMeta" class="cropModalMeta"></div>
+        </div>
+        <button id="videoCropModalClose" class="iconBtn cropModalCloseBtn" type="button" aria-label="Close crop preview" title="Close crop preview" data-i18n-title="videoCropPreviewClose">✕</button>
+      </div>
+      <div class="modalBody cropModalBody">
+        <div class="cropModalHint" data-i18n="videoCropPreviewHint">여기서는 원본 화면에서 보일 영역만 자르고, 크기와 위치는 기존 메인 미리보기에서 계속 조절합니다.</div>
+        <div id="videoCropPreviewFrame" class="videoCropPreviewFrame">
+          <video id="videoCropPreviewVideo" class="videoCropPreviewVideo" preload="metadata" playsinline></video>
+          <div id="videoCropPreviewOverlay" class="videoCropPreviewOverlay"></div>
+        </div>
+      </div>
+      <div class="modalActions cropModalActions">
+        <button id="btnVideoCropDone" class="btn primary" type="button" data-i18n="videoCropDone">완료</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="imageCutoutModal" class="modal cutoutModal hidden">
+    <div class="modalCard cutoutModalCard">
+      <div class="modalTitle cutoutModalHeader">
+        <div>
+          <div>이미지 누끼 편집</div>
+          <div id="imageCutoutMeta" class="cutoutModalMeta"></div>
+        </div>
+        <button id="imageCutoutCloseTopBtn" class="iconBtn cropModalCloseBtn" type="button" aria-label="Close image cutout editor" title="Close image cutout editor">✕</button>
+      </div>
+      <div class="modalBody cutoutModalBody">
+        <div class="cutoutToolbar">
+          <button id="btnImageCutoutBrush" type="button" class="btn smallBtn active">연필</button>
+          <button id="btnImageCutoutAutoRect" type="button" class="btn smallBtn">점선 사각형</button>
+          <div class="cutoutToolbarHint">연필은 살릴 영역을 직접 칠하고, 점선 사각형은 선택한 박스 안에서 자동으로 누끼를 시도합니다.</div>
+        </div>
+        <div id="imageCutoutViewport" class="imageCutoutViewport">
+          <canvas id="imageCutoutCanvas" class="imageCutoutCanvas" width="960" height="540"></canvas>
+        </div>
+      </div>
+      <div class="modalActions cutoutModalActions">
+        <button id="btnImageCutoutSave" class="btn primary" type="button">저장</button>
+        <button id="btnImageCutoutCancel" class="btn" type="button">취소</button>
+        <button id="btnImageCutoutClose" class="btn" type="button">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="termsModal" class="modal termsModal hidden">
+    <div class="modalCard termsCard">
+      <div class="modalTitle" data-i18n="termsTitle">소프트웨어 이용 약관</div>
+      <div class="modalBody termsBody">
+        <p>시행일: 2026-02-16</p>
+        <p>본 약관은 본 소프트웨어(이하 "프로그램")의 설치, 실행, 사용과 관련하여 사용자(이하 "이용자")와 제공자(이하 "제공자") 간의 권리·의무 및 책임사항을 규정합니다.</p>
+        <p><b>1. 동의 및 효력</b><br/>이용자가 "동의" 버튼을 클릭하거나 프로그램을 설치/실행/사용하는 경우, 이용자는 본 약관에 동의한 것으로 봅니다.<br/>이용자가 본 약관에 동의하지 않는 경우, 프로그램을 설치/사용할 수 없습니다.</p>
+        <p><b>2. 라이선스 범위(사용 허락)</b><br/>제공자는 이용자에게 비독점적, 양도 불가, 재라이선스 불가의 방식으로 프로그램을 설치 및 사용할 수 있는 권리를 부여합니다.<br/>이용자는 개인/업무 목적 범위에서 프로그램을 사용할 수 있습니다(별도 계약이 없는 한).</p>
+        <p><b>3. 금지 행위</b><br/>프로그램의 무단 복제, 재배포, 판매, 대여, 임대, 공유 / 수정, 변형, 역설계, 디컴파일, 디스어셈블(법 허용 최소 범위 제외) / 라이선스·동의 절차·보안 기능·제한 기능 우회 또는 무력화 / 불법 목적 사용 / 명칭·로고·저작권 표시 제거 또는 변경.</p>
+        <p><b>4. 파일 처리 및 콘텐츠 책임</b><br/>프로그램에서 불러오거나 내보내는 모든 콘텐츠의 권리 및 법적 책임은 이용자에게 있습니다.<br/>이용자는 관련 법령 준수를 보장합니다.<br/>제공자는 이용자 콘텐츠의 소유권을 주장하지 않습니다.</p>
+        <p><b>5. 변환(인코딩) 및 품질 제한</b><br/>내부 편집/렌더링을 위해 자동 변환(트랜스코딩)할 수 있습니다.<br/>성능/호환을 위해 최대 4K, 최대 60fps 등 제한이 있을 수 있으며 초과 파일은 자동 변환 또는 제한 범위 설정으로 처리될 수 있습니다.<br/>자동 변환 과정의 품질 변화는 정상 동작 범위로 봅니다.</p>
+        <p><b>6. 업데이트 및 기능 변경</b><br/>제공자는 오류 수정, 성능 개선, 보안 패치, 기능 변경을 위해 업데이트를 제공할 수 있으며 이에 따라 일부 기능이 변경/제한될 수 있습니다.</p>
+        <p><b>7. 개인정보 및 데이터</b><br/>오프라인 중심 동작이더라도 로컬 임시 파일/캐시가 생성될 수 있습니다.<br/>별도 고지 없이는 이용자 미디어 파일을 외부 서버로 업로드하지 않습니다.<br/>로컬 생성 파일의 보관/삭제 책임은 이용자에게 있습니다.</p>
+        <p><b>8. 제3자 구성요소(오픈소스 포함)</b><br/>FFmpeg 등 제3자 라이브러리/코덱/오픈소스가 포함될 수 있으며 각 라이선스 조건이 적용될 수 있습니다.</p>
+        <p><b>9. 보증의 부인</b><br/>프로그램은 "있는 그대로(AS IS)" 제공되며 무중단, 무오류, 특정 목적 적합성 등을 보증하지 않습니다.</p>
+        <p><b>10. 책임의 제한</b><br/>법이 허용하는 한도 내에서 직접/간접/특별/부수/결과적 손해에 대해 책임지지 않습니다.<br/>총 책임은 유료 제공 시 실제 지급 금액, 무료 제공 시 0원으로 제한됩니다.</p>
+        <p><b>11. 계약 해지(이용 종료)</b><br/>약관 위반 시 이용 중단/라이선스 종료가 가능하며, 이용자는 프로그램 삭제로 종료할 수 있습니다.</p>
+        <p><b>12. 준거법 및 분쟁</b><br/>대한민국 법령을 준거법으로 하며 관할 법원은 관련 법령에 따릅니다.</p>
+        <p><b>13. 문의</b><br/>prompt0smith@gmail.com</p>
+      </div>
+      <div class="modalActions termsActions">
+        <label class="termsCheck"><input id="termsAgreeCheck" type="checkbox" /> <span data-i18n="termsAgreeText">[필수] 위 "소프트웨어 이용 약관"을 읽었으며, 내용에 동의합니다.</span></label>
+        <div class="termsButtons">
+          <button id="btnTermsAccept" class="btn primary" data-i18n="btnTermsAccept" disabled>동의하고 시작하기</button>
+          <button id="btnTermsDecline" class="btn" data-i18n="btnTermsDecline">동의하지 않음(종료)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="settingsOverlay" class="settingsOverlay hidden"></div>
+  <aside id="settingsDrawer" class="settingsDrawer" aria-hidden="true">
+    <div class="settingsHead">
+      <h3 data-i18n="settingsTitle">Settings</h3>
+      <button id="btnSettingsClose" class="btn" data-i18n="close">Close</button>
+    </div>
+    <div class="settingsBody">
+      <div class="formRow"><label data-i18n="labelLanguage">Language</label>
+        <select id="selLang"><option value="ko">한국어</option><option value="en">English</option></select>
+      </div>
+      <div class="formRow"><label data-i18n="labelOutputFolder">저장 폴더</label><button id="btnPickOutputFolder" class="btn" data-i18n="btnPickOutputFolder">폴더 지정</button></div>
+      <div class="hint" id="outputFolderHint" data-i18n="outputFolderDefault">기본값: 프로젝트 폴더</div>
+      <hr/>
+      <div class="formRow"><button id="btnUpload" class="btn" data-i18n="btnUpload">파일 업로드</button></div>
+      <div class="formRow"><button id="btnSave" class="btn" data-i18n="btnSave">프리셋 저장</button></div>
+      <div class="formRow"><button id="btnLoad" class="btn" data-i18n="btnLoad">불러오기</button></div>
+      <div class="formRow"><button id="btnRender" class="btn primary" data-i18n="btnRender">렌더 시작</button></div>
+    </div>
+  </aside>
+
+  <script src="./commands.js"></script>
+  <script src="./pitch.js"></script>
+  <script src="../lib/render_graph.js"></script>
+  <script src="../lib/timeline_transport.js"></script>
+  <script src="../lib/overlap_resolver.js"></script>
+  <script src="../lib/zoom_motion.js"></script>
+  <script src="../lib/transition_motion.js"></script>
+  <script src="../lib/clip_visuals.js"></script>
+  <script src="./tool_tabs.js"></script>
+  <script src="./effect_defs.js"></script>
+  <script src="./overlay_engine.js"></script>
+  <script src="./preview_session.js"></script>
+  <script src="./timeline.js"></script>
+  <script src="./i18n/ko.js"></script>
+  <script src="./i18n/en.js"></script>
+  <script src="./settings.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+{
+  "name": "video-smith",
+  "productName": "Video Smith",
+  "version": "0.2.0",
+  "description": "Grey-pearl offline video editor prototype (Electron + FFmpeg)",
+  "main": "main.js",
+  "author": "",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node tests/render_regression.test.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
+    "fluent-ffmpeg": "^2.1.2",
+    "nanoid": "^5.0.7",
+    "pitchfinder": "^2.3.2"
+  },
+  "build": {
+    "appId": "com.videosmith.app",
+    "productName": "Video Smith",
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "Icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Video Smith",
+      "installerIcon": "Icon.ico",
+      "uninstallerIcon": "Icon.ico",
+      "installerHeaderIcon": "Icon.ico"
+    }
+  },
+  "devDependencies": {
+    "electron": "^29.4.0",
+    "electron-builder": "^26.7.0",
+    "png-to-ico": "^3.0.1"
+  }
+}
