@@ -358,9 +358,9 @@
   }
   function getStoredThemePreference() {
     try {
-      return localStorage.getItem(THEME_PREF_KEY) || "system";
+      return localStorage.getItem(THEME_PREF_KEY) || "dark";
     } catch {
-      return "system";
+      return "dark";
     }
   }
   function prefersReducedThemeMotion() {
@@ -377,7 +377,7 @@
     return document.body?.dataset?.theme || resolveTheme(getStoredThemePreference());
   }
   function applyTheme(preference = getStoredThemePreference()) {
-    const nextPreference = preference || "system";
+    const nextPreference = preference || "dark";
     const resolved = resolveTheme(nextPreference);
     const changed = document.body.dataset.theme !== resolved || document.body.dataset.themePreference !== nextPreference;
     if (changed) {

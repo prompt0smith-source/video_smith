@@ -5363,11 +5363,13 @@ function createRenderWindow() {
     return renderWindow;
   }
   renderWindow = new BrowserWindow({
-    width: 560,
-    height: 340,
-    resizable: false,
-    title: "Rendering",
-    backgroundColor: "#f3f4f6",
+    width: 720,
+    height: 500,
+    minWidth: 680,
+    minHeight: 460,
+    resizable: true,
+    title: "렌더링",
+    backgroundColor: "#090d12",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -5962,7 +5964,7 @@ function createWindow() {
     height: 820,
     title: "VideoSmith",
     icon: appIconPath,
-    backgroundColor: "#f3f4f6",
+    backgroundColor: "#090d12",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -6051,8 +6053,8 @@ ipcMain.handle("read-file-buffer", async (_evt, filePath) => {
 ipcMain.handle("save-project", async (_evt, projectJson, preferredPath = "") => {
   const res = await dialog.showSaveDialog(mainWindow, {
     title: "프로젝트 저장",
-    defaultPath: preferredPath || "project.pearlcut.json",
-    filters: [{ name: "PearlCut Project", extensions: ["json"] }]
+    defaultPath: preferredPath || "videosmith-project.json",
+    filters: [{ name: "VideoSmith Project", extensions: ["json"] }]
   });
   if (res.canceled || !res.filePath) return { ok: false };
   await fs.promises.writeFile(res.filePath, projectJson, "utf-8");
@@ -6063,7 +6065,7 @@ ipcMain.handle("load-project", async () => {
   const res = await dialog.showOpenDialog(mainWindow, {
     title: "프로젝트 불러오기",
     properties: ["openFile"],
-    filters: [{ name: "PearlCut Project", extensions: ["json"] }]
+    filters: [{ name: "VideoSmith Project", extensions: ["json"] }]
   });
   if (res.canceled || !res.filePaths?.[0]) return { ok: false };
   const txt = await fs.promises.readFile(res.filePaths[0], "utf-8");
@@ -6584,8 +6586,6 @@ ipcMain.handle("render", async (_evt, payload) => {
     return { ok: false, error: String(e?.message || e) };
   }
 });
-
-
 
 
 

@@ -11,6 +11,8 @@
     audioFmtRow: $("audioFmtRow"),
     rwAudioFmt: $("rwAudioFmt"),
     dots: $("renderDots"),
+    statusChip: $("renderStatusChip"),
+    percentReadout: $("percentReadout"),
     fill: $("barFill"),
     meta: $("meta"),
     chk: $("chkOpenFolder"),
@@ -135,7 +137,7 @@
     if (dotsTimer) return;
     dotsTimer = setInterval(() => {
       tick = (tick + 1) % 4;
-      els.dots.textContent = "Rendering" + ".".repeat(tick);
+      els.dots.textContent = "렌더링" + ".".repeat(tick);
     }, 200);
   }
 
@@ -168,6 +170,7 @@
     const pct = Number(s?.percent || 0);
     const message = String(s?.message || "");
     const status = s?.status || "idle";
+    if (document.body?.dataset) document.body.dataset.renderStatus = status;
     if ((status === "idle" || status === "stopped") && pct <= 0) {
       uiPercent = 0;
       if (status === "idle") renderStarted = false;
@@ -182,6 +185,18 @@
     if (message === "validating_output") uiPercent = Math.max(uiPercent, 99.9);
     if (status === "done") uiPercent = 100;
     els.fill.style.width = `${uiPercent}%`;
+    if (els.percentReadout) els.percentReadout.textContent = `${uiPercent.toFixed(1)}%`;
+    if (els.statusChip) {
+      const chipLabels = {
+        idle: "Idle",
+        running: "Running",
+        paused: "Paused",
+        done: "Done",
+        error: "Error",
+        stopped: "Stopped"
+      };
+      els.statusChip.textContent = chipLabels[status] || String(status || "Idle");
+    }
     const tm = s?.timemark || "";
     const durationSec = Number(s?.durationSec || 0);
     const debugLogPath = String(s?.debugLogPath || "");
@@ -211,11 +226,11 @@
     if (status === "done") {
       stopPseudoProgress();
       stopDots();
-      els.dots.textContent = "Done!";
+      els.dots.textContent = "완료";
     } else if (status === "error") {
       stopPseudoProgress();
       stopDots();
-      els.dots.textContent = "Render failed";
+      els.dots.textContent = "렌더 실패";
       els.meta.textContent = debugLogPath
         ? `오류 로그: ${debugLogPath}`
         : (s?.message || "렌더 오류");
@@ -233,7 +248,7 @@
     } else {
       stopPseudoProgress();
       stopDots();
-      els.dots.textContent = renderStarted ? "Rendering" : "";
+      els.dots.textContent = renderStarted ? "렌더링" : "";
     }
     applySettingValues(s?.settings || null);
   }

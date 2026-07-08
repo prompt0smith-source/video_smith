@@ -19,14 +19,14 @@
     const gear = document.getElementById("gearIcon");
     if (!gear || !gear.animate) return;
     const current = getRotationDeg(gear);
-    const target = current + direction * 160;
+    const target = current + direction * 45;
     if (gearAnim) gearAnim.cancel();
     gearAnim = gear.animate([
-      { transform: `rotate(${current}deg) rotateX(8deg) translateZ(0px)` },
-      { transform: `rotate(${target}deg) rotateX(8deg) translateZ(2px)` }
+      { transform: `rotate(${current}deg) scale(1)` },
+      { transform: `rotate(${target}deg) scale(1.02)` }
     ], {
-      duration: 520,
-      easing: "cubic-bezier(0.65, 0, 0.35, 1)",
+      duration: 180,
+      easing: "cubic-bezier(0.2, 0, 0.2, 1)",
       fill: "forwards"
     });
   }

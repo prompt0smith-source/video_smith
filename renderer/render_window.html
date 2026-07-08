@@ -1,55 +1,71 @@
-﻿<!doctype html>
-<html lang="en">
+<!doctype html>
+<html lang="ko">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rendering</title>
+  <title>렌더링</title>
   <link rel="stylesheet" href="./render_window.css" />
 </head>
-<body>
+<body data-render-status="idle">
   <div class="wrap">
-    <div class="head">
-      <div class="title">Rendering</div>
-      <button id="btnRenderSettings" class="ctrl">랜더링 설정</button>
-    </div>
-    <div id="renderSettingsPanel" class="settingsPanel hidden">
-      <div class="settingsModeRow">
-        <button id="btnRenderModeSwitch" class="ctrl mini">Switch to Audio Render</button>
+    <header class="renderHeader">
+      <div>
+        <div class="eyebrow">Render Job</div>
+        <div class="title">렌더링</div>
       </div>
-      <div class="row settingRow">
-        <label>프레임</label>
-        <select id="rwFps"></select>
+      <div class="headerActions">
+        <span id="renderStatusChip" class="statusChip">Idle</span>
+        <button id="btnRenderSettings" class="ctrl secondary" type="button">렌더링 설정</button>
       </div>
-      <div class="row settingRow">
-        <label>해상도</label>
-        <select id="rwRes"></select>
-      </div>
-      <div class="row settingRow">
-        <label>비율</label>
-        <select id="rwAspect"></select>
-      </div>
-      <div class="row settingRow">
-        <label>형식</label>
-        <select id="rwFmt"></select>
-      </div>
-      <div id="audioFmtRow" class="row settingRow hidden">
-        <label>오디오 형식</label>
-        <select id="rwAudioFmt"></select>
-      </div>
-    </div>
-    <div id="renderDots" class="dots">Rendering</div>
-    <div class="bar"><div id="barFill" class="fill"></div></div>
-    <div id="meta" class="meta">0%</div>
+    </header>
 
-    <label class="check"><input id="chkOpenFolder" type="checkbox" /> 랜더링 완료 후 폴더 열기</label>
+    <section id="renderSettingsPanel" class="settingsPanel hidden" aria-label="Render settings">
+      <div class="settingsPanelHead">
+        <div class="settingsTitle">Output Settings</div>
+        <button id="btnRenderModeSwitch" class="ctrl mini" type="button">Switch to Audio Render</button>
+      </div>
+      <div class="settingsGrid">
+        <div class="settingRow">
+          <label for="rwFps">프레임</label>
+          <select id="rwFps"></select>
+        </div>
+        <div class="settingRow">
+          <label for="rwRes">해상도</label>
+          <select id="rwRes"></select>
+        </div>
+        <div class="settingRow">
+          <label for="rwAspect">비율</label>
+          <select id="rwAspect"></select>
+        </div>
+        <div class="settingRow">
+          <label for="rwFmt">형식</label>
+          <select id="rwFmt"></select>
+        </div>
+        <div id="audioFmtRow" class="settingRow hidden">
+          <label for="rwAudioFmt">오디오 형식</label>
+          <select id="rwAudioFmt"></select>
+        </div>
+      </div>
+    </section>
 
-    <div class="row">
-      <button id="btnResume" class="ctrl">Resume</button>
-      <button id="btnPause" class="ctrl">Pause</button>
-      <button id="btnStop" class="ctrl">Stop</button>
-      <button id="btnStart" class="ctrl primary">Start</button>
-      <button id="btnCancel" class="ctrl danger">Cancel</button>
-    </div>
+    <main class="progressPanel">
+      <div class="progressTop">
+        <div id="renderDots" class="dots">렌더링 대기</div>
+        <div id="percentReadout" class="percentReadout">0.0%</div>
+      </div>
+      <div class="bar" aria-label="Render progress"><div id="barFill" class="fill"></div></div>
+      <div id="meta" class="meta">0%</div>
+    </main>
+
+    <label class="check"><input id="chkOpenFolder" type="checkbox" /> 렌더링 완료 후 폴더 열기</label>
+
+    <footer class="actionBar">
+      <button id="btnResume" class="ctrl" type="button">Resume</button>
+      <button id="btnPause" class="ctrl" type="button">Pause</button>
+      <button id="btnStop" class="ctrl" type="button">Stop</button>
+      <button id="btnStart" class="ctrl primary" type="button">Start</button>
+      <button id="btnCancel" class="ctrl danger" type="button">Cancel</button>
+    </footer>
   </div>
   <div class="copyrightMini">Copyright © 2026 Prompt0smith. All rights reserved.</div>
   <script src="./render_window.js"></script>

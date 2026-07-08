@@ -1,0 +1,211 @@
+[2026-07-08T11:09:18.964Z] Render debug session created
+overlayTypes={}
+outputPath=/Users/jinkyuyoo/Movies/render_1783508958963.mp4
+renderMode=video
+container=MP4
+audioContainer=MP3
+resolution=FHD
+aspectRatio=16:9
+fps=30
+region=full
+videoClips=1
+audioItems=0
+overlayItems=0
+overlaySummary=[]
+
+[2026-07-08T11:09:18.985Z] Attempt prepared: primary
+durationSec=5
+hasRenderableAudio=false
+inputCount=1
+outputStaged=false
+preparedOutputPath=/Users/jinkyuyoo/Movies/render_1783508958963.mp4
+finalOutputPath=/Users/jinkyuyoo/Movies/render_1783508958963.mp4
+
+[2026-07-08T11:09:18.986Z] Attempt started: primary
+ffmpeg -i /Users/jinkyuyoo/Library/Application Support/VideoSmith/media/522a3cfacdbf4085a6586.background.mp4 -y -filter_complex [0:v:0]trim=start=0:end=5,setpts=PTS-STARTPTS,scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:0x000000@1.0000,fps=30,format=yuv420p[v0t];[v0t]concat=n=1:v=1:a=0[vout];[vout]fps=30,settb=AVTB,setpts=N/(30*TB),format=yuv420p[vout_cfr];[vout_cfr]tpad=stop_mode=clone:stop_duration=0.267,trim=start_frame=0:end_frame=150,setpts=N/(30*TB)[vout_cfr_dur] -y -map [vout_cfr_dur] -an -t 5 -fps_mode cfr -c:v libx264 -movflags +faststart -preset ultrafast -crf 23 -filter_threads 8 -filter_complex_threads 8 -max_muxing_queue_size 4096 -threads 10 -pix_fmt yuv420p /Users/jinkyuyoo/Movies/render_1783508958963.mp4
+
+[2026-07-08T11:09:18.994Z] ffmpeg stderr: primary
+ffmpeg version 6.0 Copyright (c) 2000-2023 the FFmpeg developers
+
+[2026-07-08T11:09:18.994Z] ffmpeg stderr: primary
+built with Apple clang version 13.1.6 (clang-1316.0.21.2.5)
+
+[2026-07-08T11:09:18.994Z] ffmpeg stderr: primary
+configuration: --prefix=/Volumes/tempdisk/sw --extra-cflags=-fno-stack-check --arch=arm64 --cc=/usr/bin/clang --enable-gpl --enable-libvmaf --enable-libbluray --enable-libopenjpeg --enable-libopus --enable-libmp3lame --enable-libx264 --enable-libx265 --enable-libvpx --enable-libwebp --enable-libass --enable-libfreetype --enable-fontconfig --enable-libtheora --enable-libvorbis --enable-libsnappy --enable-libaom --enable-libvidstab --enable-libzimg --enable-libsvtav1 --enable-libkvazaar --enable-version3 --pkg-config-flags=--static --enable-ffplay --enable-postproc --enable-nonfree --enable-neon --enable-runtime-cpudetect --disable-indev=qtkit --disable-indev=x11grab_xcb
+
+[2026-07-08T11:09:18.994Z] ffmpeg stderr: primary
+libavutil      58.  2.100 / 58.  2.100
+
+[2026-07-08T11:09:18.994Z] ffmpeg stderr: primary
+libavcodec     60.  3.100 / 60.  3.100
+
+[2026-07-08T11:09:18.994Z] ffmpeg stderr: primary
+libavformat    60.  3.100 / 60.  3.100
+
+[2026-07-08T11:09:18.994Z] ffmpeg stderr: primary
+libavdevice    60.  1.100 / 60.  1.100
+
+[2026-07-08T11:09:18.994Z] ffmpeg stderr: primary
+libavfilter     9.  3.100 /  9.  3.100
+
+[2026-07-08T11:09:18.994Z] ffmpeg stderr: primary
+libswscale      7.  1.100 /  7.  1.100
+
+[2026-07-08T11:09:18.994Z] ffmpeg stderr: primary
+libswresample   4. 10.100 /  4. 10.100
+
+[2026-07-08T11:09:18.994Z] ffmpeg stderr: primary
+libpostproc    57.  1.100 / 57.  1.100
+
+[2026-07-08T11:09:18.997Z] ffmpeg stderr: primary
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '/Users/jinkyuyoo/Library/Application Support/VideoSmith/media/522a3cfacdbf4085a6586.background.mp4':
+
+[2026-07-08T11:09:18.997Z] ffmpeg stderr: primary
+Metadata:
+
+[2026-07-08T11:09:18.997Z] ffmpeg stderr: primary
+major_brand     : isom
+
+[2026-07-08T11:09:18.997Z] ffmpeg stderr: primary
+minor_version   : 512
+
+[2026-07-08T11:09:18.997Z] ffmpeg stderr: primary
+compatible_brands: isomiso2avc1mp41
+
+[2026-07-08T11:09:18.997Z] ffmpeg stderr: primary
+encoder         : Lavf60.3.100
+
+[2026-07-08T11:09:18.997Z] ffmpeg stderr: primary
+Duration: 00:00:05.00, start: 0.000000, bitrate: 22 kb/s
+
+[2026-07-08T11:09:18.997Z] ffmpeg stderr: primary
+Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1920x1080 [SAR 1:1 DAR 16:9], 18 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+
+[2026-07-08T11:09:18.997Z] ffmpeg stderr: primary
+Metadata:
+
+[2026-07-08T11:09:18.997Z] ffmpeg stderr: primary
+handler_name    : VideoHandler
+
+[2026-07-08T11:09:18.997Z] ffmpeg stderr: primary
+vendor_id       : [0][0][0][0]
+
+[2026-07-08T11:09:18.997Z] ffmpeg stderr: primary
+encoder         : Lavc60.3.100 libx264
+
+[2026-07-08T11:09:18.998Z] ffmpeg stderr: primary
+Stream mapping:
+
+[2026-07-08T11:09:18.998Z] ffmpeg stderr: primary
+Stream #0:0 (h264) -> trim:default
+
+[2026-07-08T11:09:18.998Z] ffmpeg stderr: primary
+setpts:default -> Stream #0:0 (libx264)
+
+[2026-07-08T11:09:18.998Z] ffmpeg stderr: primary
+Press [q] to stop, [?] for help
+
+[2026-07-08T11:09:19.005Z] ffmpeg stderr: primary
+[libx264 @ 0x118e04df0] using SAR=1/1
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+[libx264 @ 0x118e04df0] using cpu capabilities: ARMv8 NEON
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+[libx264 @ 0x118e04df0] profile Constrained Baseline, level 4.0, 4:2:0, 8-bit
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+[libx264 @ 0x118e04df0] 264 - core 164 r3075 66a5bc1 - H.264/MPEG-4 AVC codec - Copyleft 2003-2021 - http://www.videolan.org/x264.html - options: cabac=0 ref=1 deblock=0:0:0 analyse=0:0 me=dia subme=0 psy=1 psy_rd=1.00:0.00 mixed_ref=0 me_range=16 chroma_me=1 trellis=0 8x8dct=0 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=0 threads=10 lookahead_threads=1 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=0 weightp=0 keyint=250 keyint_min=25 scenecut=0 intra_refresh=0 rc=crf mbtree=0 crf=23.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=0
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+Output #0, mp4, to '/Users/jinkyuyoo/Movies/render_1783508958963.mp4':
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+Metadata:
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+major_brand     : isom
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+minor_version   : 512
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+compatible_brands: isomiso2avc1mp41
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+encoder         : Lavf60.3.100
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(progressive), 1920x1080 [SAR 1:1 DAR 16:9], q=2-31, 30 fps, 15360 tbn
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+Metadata:
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+encoder         : Lavc60.3.100 libx264
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+Side data:
+
+[2026-07-08T11:09:19.006Z] ffmpeg stderr: primary
+cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+
+[2026-07-08T11:09:19.007Z] ffmpeg stderr: primary
+frame=    0 fps=0.0 q=0.0 size=       0kB time=-577014:32:22.77 bitrate=  -0.0kbits/s speed=N/A
+
+[2026-07-08T11:09:19.102Z] ffmpeg stderr: primary
+[mp4 @ 0x118e04080] Starting second pass: moving the moov atom to the beginning of the file
+
+[2026-07-08T11:09:19.102Z] ffmpeg stderr: primary
+frame=  150 fps=0.0 q=-1.0 Lsize=      10kB time=00:00:04.96 bitrate=  16.1kbits/s speed=47.7x
+
+[2026-07-08T11:09:19.102Z] ffmpeg stderr: primary
+video:8kB audio:0kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: 16.992165%
+
+[2026-07-08T11:09:19.102Z] ffmpeg stderr: primary
+[libx264 @ 0x118e04df0] frame I:1     Avg QP:20.00  size:  6163
+
+[2026-07-08T11:09:19.102Z] ffmpeg stderr: primary
+[libx264 @ 0x118e04df0] frame P:149   Avg QP:13.01  size:    12
+
+[2026-07-08T11:09:19.102Z] ffmpeg stderr: primary
+[libx264 @ 0x118e04df0] mb I  I16..4: 100.0%  0.0%  0.0%
+
+[2026-07-08T11:09:19.102Z] ffmpeg stderr: primary
+[libx264 @ 0x118e04df0] mb P  I16..4:  0.0%  0.0%  0.0%  P16..4:  0.0%  0.0%  0.0%  0.0%  0.0%    skip:100.0%
+
+[2026-07-08T11:09:19.102Z] ffmpeg stderr: primary
+[libx264 @ 0x118e04df0] coded y,uvDC,uvAC intra: 0.0% 0.0% 0.0% inter: 0.0% 0.0% 0.0%
+
+[2026-07-08T11:09:19.102Z] ffmpeg stderr: primary
+[libx264 @ 0x118e04df0] i16 v,h,dc,p: 99%  0%  1%  0%
+
+[2026-07-08T11:09:19.102Z] ffmpeg stderr: primary
+[libx264 @ 0x118e04df0] i8c dc,h,v,p: 100%  0%  0%  0%
+
+[2026-07-08T11:09:19.102Z] ffmpeg stderr: primary
+[libx264 @ 0x118e04df0] kb/s:12.72
+
+[2026-07-08T11:09:19.108Z] Attempt finalizing: primary
+stage=encoder_finished
+outputStaged=false
+
+[2026-07-08T11:09:19.108Z] Attempt finalizing: primary
+stage=finalizing_output
+outputStaged=false
+
+[2026-07-08T11:09:19.108Z] Attempt finalizing: primary
+stage=cleaning_up_render
+outputStaged=false
+
+[2026-07-08T11:09:19.108Z] Final output validation starting
+attempt=primary
+outputPath=/Users/jinkyuyoo/Movies/render_1783508958963.mp4
+
+[2026-07-08T11:09:19.108Z] Final output validated
+primary: /Users/jinkyuyoo/Movies/render_1783508958963.mp4
+size=10004
+
+[2026-07-08T11:09:19.108Z] Render completed
+finalOutputPath=/Users/jinkyuyoo/Movies/render_1783508958963.mp4
+
