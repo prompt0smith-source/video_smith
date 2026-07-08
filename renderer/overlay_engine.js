@@ -101,6 +101,32 @@
     el.style.webkitTextStroke = strokeWidth > 0 ? `${strokeWidth}px ${strokeColor}` : "0px transparent";
     el.style.textShadow = strokeWidth > 0 ? `0 1px ${Math.max(1, Math.round(strokeWidth * 1.25))}px rgba(0,0,0,0.35)` : "none";
   }
+  function getTextBaseTransform(textAlign) {
+    return textAlign === "left"
+      ? "translate(0, 0)"
+      : (textAlign === "right" ? "translate(-100%, 0)" : "translate(-50%, 0)");
+  }
+  function updatePreviewTextElementLayout(el, overlay, frame) {
+    const textAlign = String(overlay.textAlign || "center");
+    const xNorm = clamp(Number(overlay.x ?? 0.5), 0, 1);
+    const yNorm = clamp(Number(overlay.y ?? 0.82), 0, 1);
+    const boxWidth = Math.max(0.12, Number(overlay.boxWidth || 0.26));
+    const scaledFontSize = Math.max(10, Math.round(Number(overlay.fontSize || 64) * Number(frame.scale || 1)));
+
+    el.dataset.overlayId = String(overlay.id || "");
+    el.textContent = overlay.text || "Text";
+    el.style.left = `${Number(frame.left || 0) + Math.round(Number(frame.width || 0) * xNorm)}px`;
+    el.style.top = `${Number(frame.top || 0) + Math.round(Number(frame.height || 0) * yNorm)}px`;
+    el.style.maxWidth = `${Math.max(80, Number(frame.width || 0) * boxWidth)}px`;
+    el.style.fontSize = `${scaledFontSize}px`;
+    el.style.fontFamily = overlay.fontFamily || "Malgun Gothic";
+    el.style.fontWeight = String(overlay.fontWeight || 700);
+    el.style.color = overlay.noFill ? "transparent" : (overlay.color || "#ffffff");
+    el.style.textAlign = textAlign;
+    el.style.transformOrigin = textAlign === "left" ? "0% 50%" : (textAlign === "right" ? "100% 50%" : "50% 50%");
+    el.style.transform = getTextBaseTransform(textAlign);
+    applyStrokeStyle(el, overlay.noStroke ? { ...overlay, strokeWidth: 0 } : overlay);
+  }
   function hashString(input) {
     let hash = 0;
     const text = String(input || "");
@@ -428,43 +454,26 @@
       layer.innerHTML = "";
       layer.dataset.renderKey = renderKey;
       textOverlays.forEach((overlay) => {
-      const el = document.createElement("div");
-      const textAlign = overlay.textAlign || "center";
-      const xNorm = clamp(Number(overlay.x ?? 0.5), 0, 1);
-      const yNorm = clamp(Number(overlay.y ?? 0.82), 0, 1);
-      el.className = "previewTextItem";
-      el.dataset.overlayId = String(overlay.id || "");
-      el.textContent = overlay.text || "Text";
-      el.style.left = `${frame.left + Math.round(frame.width * xNorm)}px`;
-      el.style.top = `${frame.top + Math.round(frame.height * yNorm)}px`;
-      el.style.maxWidth = `${Math.max(80, frame.width * Math.max(0.12, Number(overlay.boxWidth || 0.26)))}px`;
-      el.style.fontSize = `${Math.max(10, Math.round(Number(overlay.fontSize || 64) * frame.scale))}px`;
-      el.style.fontFamily = overlay.fontFamily || "Malgun Gothic";
-      el.style.fontWeight = String(overlay.fontWeight || 700);
-      el.style.color = overlay.noFill ? "transparent" : (overlay.color || "#ffffff");
-      el.style.opacity = String(clamp(Number(overlay.opacity ?? 1), 0, 1));
-      el.style.textAlign = textAlign;
-      el.style.transform = textAlign === "left" ? "translate(0, 0)" : (textAlign === "right" ? "translate(-100%, 0)" : "translate(-50%, 0)");
-      applyStrokeStyle(el, overlay.noStroke ? { ...overlay, strokeWidth: 0 } : overlay);
-      layer.appendChild(el);
+        const el = document.createElement("div");
+        el.className = "previewTextItem";
+        layer.appendChild(el);
       });
     }
     const currentTime = Number(options.currentTime || 0);
     textOverlays.forEach((overlay, index) => {
       const el = layer.children[index];
       if (!el) return;
-      el.dataset.overlayId = String(overlay.id || "");
+      updatePreviewTextElementLayout(el, overlay, frame);
       const total = Math.max(MIN_OVERLAY_CLIP_SEC, Number(overlay.duration || 2));
       const localTime = Math.max(0, currentTime - Number(overlay.start || 0));
       const textAlign = String(overlay.textAlign || "center");
-      const baseTransform = textAlign === "left" ? "translate(0, 0)" : (textAlign === "right" ? "translate(-100%, 0)" : "translate(-50%, 0)");
+      const baseTransform = getTextBaseTransform(textAlign);
       const transitionStyle = getTextOverlayTransitionStyle(overlay, currentTime, {
         width: el.offsetWidth || el.getBoundingClientRect?.().width || 0,
         height: el.offsetHeight || el.getBoundingClientRect?.().height || 0
       });
       const alpha = clamp(Number(overlay.opacity ?? 1) * getManualAlpha(localTime, total, overlay) * clamp(Number(transitionStyle.opacityMultiplier ?? 1), 0, 1), 0, 1);
       el.style.opacity = String(alpha);
-      el.style.transformOrigin = textAlign === "left" ? "0% 50%" : (textAlign === "right" ? "100% 50%" : "50% 50%");
       el.style.transform = [baseTransform, transitionStyle.transform].filter(Boolean).join(" ") || baseTransform;
       el.style.filter = transitionStyle.filter || "none";
       el.style.maskImage = transitionStyle.maskImage ? `url("${transitionStyle.maskImage}")` : "none";
@@ -902,15 +911,40 @@
   }
   function renderFxPreviewCanvas(canvas, overlay, options = {}) {
     const prepared = prepareStandaloneCanvas(canvas, options.resolutionName || "HD", options.aspectRatio);
-    if (!prepared || !overlay || overlay.overlayType === "text") return;
+    if (!prepared || !overlay || overlay.overlayType === "text") return false;
     const { ctx, frame } = prepared;
-    const phase = getOverlayPhase(overlay, Number(options.currentTime || 0));
-    if (!phase) return;
+    const currentTime = Number(options.currentTime || 0);
+    const drawBackground = typeof options.drawBackground === "function" ? options.drawBackground : null;
+    let drewBackground = false;
+    if (drawBackground) {
+      try {
+        drawBackground(ctx, frame.left, frame.top, frame.width, frame.height, {
+          ...options,
+          canvas,
+          frame,
+          overlay,
+          currentTime,
+          resolutionName: options.resolutionName || "HD",
+          aspectRatio: options.aspectRatio || "16:9"
+        });
+        drewBackground = true;
+      } catch (_) {
+        // Preview background hooks are decorative; keep effect rendering alive if they fail.
+        drewBackground = false;
+      }
+    }
+    if (!drewBackground) {
+      ctx.fillStyle = "#0b0f14";
+      ctx.fillRect(frame.left, frame.top, frame.width, frame.height);
+    }
+    const phase = getOverlayPhase(overlay, currentTime);
+    if (!phase) return true;
     if (overlay.overlayType === "drop_wave") {
       drawDropWaveThumbnailEffect(ctx, frame, overlay, phase);
-      return;
+      return true;
     }
     drawFxOverlay(ctx, frame, overlay, phase);
+    return true;
   }
   function renderFxFrameToDataUrl(options = {}) {
     if (typeof document === "undefined") return "";
@@ -935,6 +969,112 @@
       });
     return canvas.toDataURL("image/png");
   }
+  function quoteCanvasFontFamily(name) {
+    const family = String(name || "Malgun Gothic").trim() || "Malgun Gothic";
+    if (/^["'].*["']$/.test(family)) return family;
+    return `"${family.replace(/["\\]/g, "")}"`;
+  }
+  function wrapCanvasText(ctx, text, maxWidth) {
+    const paragraphs = String(text || "").split(/\r?\n/);
+    const lines = [];
+    paragraphs.forEach((paragraph) => {
+      if (!paragraph) {
+        lines.push("");
+        return;
+      }
+      const hasWordBreaks = /\s/.test(paragraph);
+      const units = hasWordBreaks ? paragraph.split(/(\s+)/).filter((unit) => unit !== "") : [...paragraph];
+      let line = "";
+      units.forEach((unit) => {
+        const candidate = line ? `${line}${unit}` : unit;
+        if (line && ctx.measureText(candidate).width > maxWidth) {
+          lines.push(line.trimEnd());
+          line = unit.trimStart();
+        } else {
+          line = candidate;
+        }
+      });
+      if (line || !lines.length) lines.push(line.trimEnd());
+    });
+    return lines.length ? lines : [""];
+  }
+  function renderTextFrameToDataUrl(options = {}) {
+    if (typeof document === "undefined") return "";
+    const resolutionName = options.resolutionName || "FHD";
+    const target = resToWH(resolutionName, options.aspectRatio);
+    const width = Math.max(1, Math.round(Number(options.width || target.w)));
+    const height = Math.max(1, Math.round(Number(options.height || target.h)));
+    const overlays = Array.isArray(options.overlays) ? options.overlays : [];
+    const currentTime = Number(options.currentTime || 0);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return "";
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.textBaseline = "top";
+    const frame = getExplicitFrameBox(width, height, resolutionName, options.aspectRatio);
+    overlays
+      .filter((overlay) => overlay && String(overlay.overlayType || "text") === "text")
+      .forEach((overlay) => {
+        const start = Number(overlay.start || 0);
+        const total = Math.max(MIN_OVERLAY_CLIP_SEC, Number(overlay.duration || 2));
+        if (currentTime < start - 1e-6 || currentTime > start + total + 1e-6) return;
+        const localTime = Math.max(0, currentTime - start);
+        const transitionStyle = getTextOverlayTransitionStyle(overlay, currentTime, {
+          width: Math.max(1, frame.width * Number(overlay.boxWidth || 0.26)),
+          height: Math.max(1, Number(overlay.fontSize || 64) * frame.scale)
+        });
+        const alpha = clamp(
+          Number(overlay.opacity ?? 1)
+            * getManualAlpha(localTime, total, overlay)
+            * clamp(Number(transitionStyle.opacityMultiplier ?? 1), 0, 1),
+          0,
+          1
+        );
+        if (alpha <= 0.001) return;
+        const fontSize = Math.max(10, Math.round(Number(overlay.fontSize || 64) * Number(frame.scale || 1)));
+        const lineHeight = Math.max(fontSize, fontSize * Math.max(0.75, Number(overlay.lineHeight || 1.18)));
+        const fontWeight = String(overlay.fontWeight || 700);
+        const fontFamily = [
+          quoteCanvasFontFamily(overlay.fontFamily || "Malgun Gothic"),
+          "\"Apple SD Gothic Neo\"",
+          "\"Malgun Gothic\"",
+          "\"Noto Sans CJK KR\"",
+          "\"NanumGothic\"",
+          "sans-serif"
+        ].join(", ");
+        const maxWidth = Math.max(32, Number(frame.width || width) * Math.max(0.08, Number(overlay.boxWidth || 0.26)));
+        const anchorX = Number(frame.left || 0) + (Number(frame.width || width) * clamp(Number(overlay.x ?? 0.5), 0, 1));
+        const y = Number(frame.top || 0) + (Number(frame.height || height) * clamp(Number(overlay.y ?? 0.82), 0, 1));
+        const align = String(overlay.textAlign || "center");
+        const x = align === "left" ? anchorX : (align === "right" ? anchorX - maxWidth : anchorX - (maxWidth / 2));
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+        ctx.textAlign = align === "right" ? "right" : (align === "left" ? "left" : "center");
+        ctx.lineJoin = "round";
+        ctx.miterLimit = 2;
+        const drawX = align === "left" ? x : (align === "right" ? x + maxWidth : x + (maxWidth / 2));
+        const lines = wrapCanvasText(ctx, overlay.text || "Text", maxWidth);
+        const strokeWidth = overlay.noStroke ? 0 : Math.max(0, Number(overlay.strokeWidth || 0) * Number(frame.scale || 1));
+        lines.forEach((line, lineIndex) => {
+          const lineY = y + (lineIndex * lineHeight);
+          if (strokeWidth > 0) {
+            ctx.lineWidth = strokeWidth * 2;
+            ctx.strokeStyle = overlay.strokeColor || "#000000";
+            ctx.strokeText(line, drawX, lineY, maxWidth);
+          }
+          if (!overlay.noFill) {
+            ctx.fillStyle = overlay.color || "#ffffff";
+            ctx.fillText(line, drawX, lineY, maxWidth);
+          }
+        });
+        ctx.restore();
+      });
+    return canvas.toDataURL("image/png");
+  }
   function renderOverlays(rootEl, overlays, options = {}) {
     renderTextLayer(rootEl, overlays, options);
     renderFxCanvas(rootEl, overlays, options);
@@ -950,6 +1090,7 @@
     getDropWaveDistortionState,
     renderFxPreviewCanvas,
     renderFxFrameToDataUrl,
+    renderTextFrameToDataUrl,
     renderOverlays,
     renderTextOverlays: renderTextLayer,
     resToWH

@@ -1,8 +1,8 @@
 (() => {
   window.PearlLangEn = {
     btnUpload: "Upload",
-    btnSave: "Save Preset (Ctrl+S)",
-    btnLoad: "Load",
+    btnSave: "Save Project (Ctrl+S)",
+    btnLoad: "Load Project",
     btnRender: "Render (Ctrl+R)",
     btnSettings: "Settings",
     btnPickOutputFolder: "Choose Folder",
@@ -51,6 +51,48 @@
     termsTitle: "Software Terms of Use",
     termsAgreeText: "[Required] I have read and agree to the \"Software Terms of Use\".",
     settingsTitle: "Settings",
+    settingsLegalTitle: "Legal",
+    btnThirdPartyNotices: "Open Source Notices",
+    thirdPartyNoticesTitle: "Open Source and Third-party Notices",
+    thirdPartyNoticesHint: "Review license information for FFmpeg and third-party components.",
+    thirdPartyNoticesBody: `
+      <div class="noticeIntro">
+        <p>VideoSmith uses the open-source and third-party components listed below. Each component remains owned by its original rights holders, and its license terms apply first.</p>
+        <p class="noticeCaution">This notice is not legal advice. Before public distribution, verify the exact packaged binaries, full license texts, source-code availability, and any patent or codec obligations.</p>
+      </div>
+      <section class="noticeSection">
+        <h4>FFmpeg / FFprobe</h4>
+        <ul>
+          <li><b>FFmpeg</b>: bundled through ffmpeg-static 5.3.0. The current local binary reports FFmpeg 6.0, and the package license is GPL-3.0-or-later.</li>
+          <li>The current FFmpeg binary configuration includes <span class="noticeCode">--enable-gpl</span> and <span class="noticeCode">--enable-nonfree</span>. Review redistributability and source-code delivery before shipping.</li>
+          <li><b>FFprobe</b>: @ffprobe-installer/ffprobe 2.1.2 is preferred at runtime. The current mac arm64 package is LGPL-2.1, while other platform packages may be GPL-3.0.</li>
+          <li>When distributing FFmpeg/FFprobe, provide the applicable license text, copyright notices, no-warranty notice, and source code or source-download location matching the shipped binary.</li>
+          <li>References: ffmpeg.org, ffmpeg.org/legal.html, github.com/FFmpeg/FFmpeg</li>
+        </ul>
+      </section>
+      <section class="noticeSection">
+        <h4>Key Runtime Components</h4>
+        <div class="noticeTable" role="table" aria-label="Third-party runtime package licenses">
+          <div class="noticeRow noticeRowHead" role="row"><span>Component</span><span>Version</span><span>License / note</span></div>
+          <div class="noticeRow" role="row"><span>ffmpeg-static</span><span>5.3.0</span><span>GPL-3.0-or-later, includes FFmpeg 6.0 binary</span></div>
+          <div class="noticeRow" role="row"><span>@ffprobe-installer/ffprobe</span><span>2.1.2</span><span>LGPL-2.1 wrapper, platform binary licenses vary</span></div>
+          <div class="noticeRow" role="row"><span>ffprobe-static</span><span>3.1.0</span><span>MIT package, bundled binary should be checked per target platform</span></div>
+          <div class="noticeRow" role="row"><span>fluent-ffmpeg</span><span>2.1.3</span><span>MIT</span></div>
+          <div class="noticeRow" role="row"><span>pitchfinder</span><span>2.3.4</span><span>GNU v3</span></div>
+          <div class="noticeRow" role="row"><span>nanoid</span><span>5.1.6</span><span>MIT</span></div>
+          <div class="noticeRow" role="row"><span>Electron</span><span>29.4.6</span><span>MIT, includes Chromium/Node.js related notices</span></div>
+        </div>
+      </section>
+      <section class="noticeSection">
+        <h4>Pre-distribution Checklist</h4>
+        <ol>
+          <li>Confirm the license and configure flags of the FFmpeg/FFprobe binaries actually included in the packaged app.</li>
+          <li>Include full license texts and copyright notices for GPL, LGPL, MIT, and other applicable licenses.</li>
+          <li>If FFmpeg/FFprobe binaries are distributed, provide matching source code or a source-download location with the distribution.</li>
+          <li>Keep the terms of use and UI copy from restricting rights granted by open-source licenses.</li>
+        </ol>
+      </section>
+    `,
     outputFolderDefault: "Default: project folder",
     close: "Close",
     genericClip: "Clip",

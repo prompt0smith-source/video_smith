@@ -162,6 +162,9 @@
     regionStartHandle: $("regionStartHandle"),
     regionEndHandle: $("regionEndHandle"),
     zoom: $("zoom"),
+    btnZoomOut: $("btnZoomOut"),
+    btnZoomIn: $("btnZoomIn"),
+    zoomValue: $("zoomValue"),
     toast: $("toast"),
     modal: $("modal"),
     modalBody: $("modalBody"),
@@ -412,6 +415,55 @@
     applyTheme(next);
   }
 
+  function updateRangeVisual(input) {
+    if (!input || input.type !== "range") return;
+    const min = Number(input.min || 0);
+    const max = Number(input.max || 100);
+    const value = Number(input.value || min);
+    const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
+    const clamped = Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0));
+    input.style.setProperty("--range-pct", `${clamped}%`);
+  }
+
+  function hydrateRangeInputs(root = document) {
+    if (!root) return;
+    if (root.matches?.('input[type="range"]')) updateRangeVisual(root);
+    root.querySelectorAll?.('input[type="range"]').forEach(updateRangeVisual);
+  }
+
+  function updateZoomValue() {
+    if (!els.zoomValue || !els.zoom) return;
+    const value = Number(els.zoom.value || state?.ui?.pxPerSec || 90);
+    els.zoomValue.textContent = `${Math.round(Number.isFinite(value) ? value : 90)}`;
+  }
+
+  function setupRangeVisuals() {
+    if (rangeVisualsBound) return;
+    rangeVisualsBound = true;
+    hydrateRangeInputs();
+    const syncRange = (event) => {
+      const target = event.target;
+      if (target?.matches?.('input[type="range"]')) updateRangeVisual(target);
+    };
+    document.addEventListener("input", syncRange);
+    document.addEventListener("change", syncRange);
+    if (typeof MutationObserver !== "function" || !document.body) return;
+    rangeMutationObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes?.forEach((node) => {
+          if (node?.nodeType === Node.ELEMENT_NODE) hydrateRangeInputs(node);
+        });
+        if (mutation.type === "attributes") hydrateRangeInputs(mutation.target);
+      });
+    });
+    rangeMutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["min", "max", "value", "disabled"]
+    });
+  }
+
   const cmdStack = new window.CommandStack();
   const TERMS_ACCEPT_KEY = "pearl.terms.accepted.once";
   const TERMS_ACCEPT_KEY_LEGACY = "pearl.terms.accepted.effectiveDate";
@@ -495,8 +547,15 @@
   let thumbRunning = false;
   const palettePreviewMotionQuery = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
   let palettePreviewDisposers = [];
+  let palettePreviewImage = null;
+  let palettePreviewImageReady = false;
+  let palettePreviewImageRequested = false;
+  let activePaletteDragImageEl = null;
+  let rangeVisualsBound = false;
+  let rangeMutationObserver = null;
   let themeTransitionTimer = 0;
   let previewFrameRefreshRaf = 0;
+  let previewResizeObserver = null;
   let customFonts = [];
   let pendingCustomFontFilePath = "";
   let lastTimeReadoutValue = "";
@@ -825,6 +884,54 @@
   function getBackgroundClipColorLabel(color) {
     const normalized = normalizeBackgroundColor(color || "#ffffff");
     return getBackgroundClipColorOptions().find((item) => item.value === normalized)?.label || normalized.toUpperCase();
+  }
+
+  function clearPaletteDragImage() {
+    if (activePaletteDragImageEl?.parentNode) activePaletteDragImageEl.parentNode.removeChild(activePaletteDragImageEl);
+    activePaletteDragImageEl = null;
+    document.querySelectorAll(".paletteItem.isDragging").forEach((node) => node.classList.remove("isDragging"));
+    document.body?.classList.remove("palette-dragging");
+  }
+
+  function createPaletteDragImage(item = {}, dragItem = {}) {
+    clearPaletteDragImage();
+    const ghost = document.createElement("div");
+    const kind = String(dragItem.kind || item.kind || "item");
+    ghost.className = "dragPreviewGhost";
+    ghost.dataset.kind = kind;
+    ghost.setAttribute("aria-hidden", "true");
+
+    if (kind === "background") {
+      const color = normalizeBackgroundColor(dragItem.color || state.settings.backgroundClipColor || "#ffffff");
+      const swatch = document.createElement("span");
+      swatch.className = "dragPreviewSwatch";
+      swatch.style.background = color;
+      ghost.appendChild(swatch);
+    } else {
+      const mark = document.createElement("span");
+      mark.className = "dragPreviewMark";
+      mark.textContent = kind === "transition" ? "TR" : (kind === "fx" ? "FX" : "T");
+      ghost.appendChild(mark);
+    }
+
+    const copy = document.createElement("span");
+    copy.className = "dragPreviewCopy";
+    const title = document.createElement("span");
+    title.className = "dragPreviewTitle";
+    title.textContent = kind === "background" ? t("backgroundClipCardName", "배경 클립") : (item.name || "Item");
+    const meta = document.createElement("span");
+    meta.className = "dragPreviewMeta";
+    if (kind === "background") {
+      const color = normalizeBackgroundColor(dragItem.color || state.settings.backgroundClipColor || "#ffffff").toUpperCase();
+      meta.textContent = `${formatTimelineSec(dragItem.durationSec || BACKGROUND_CLIP_DURATION_SEC)}s · ${color}`;
+    } else {
+      meta.textContent = item.desc || kind.toUpperCase();
+    }
+    copy.append(title, meta);
+    ghost.appendChild(copy);
+    document.body.appendChild(ghost);
+    activePaletteDragImageEl = ghost;
+    return ghost;
   }
 
   function syncBackgroundClipColorControls() {
@@ -5863,6 +5970,7 @@
     pop.style.top = `${state.ui.fxPopover.y}px`;
     pop.innerHTML = `<div class="fxPopoverHead">${getOverlayDisplayName(overlay)}</div>${rows.join("")}`;
     pop.classList.remove("hidden");
+    hydrateRangeInputs(pop);
     pop.querySelectorAll("[data-fx-field]").forEach((input) => {
       input.addEventListener("input", () => {
         const active = state.project.overlayItems.find((item) => item.id === overlay.id);
@@ -6148,6 +6256,7 @@
     pop.style.top = `${state.ui.transitionPopover.anchorY}px`;
     pop.innerHTML = `<div class="fxPopoverHead">${targetLabel}</div>${rows.join("")}`;
     pop.classList.remove("hidden");
+    hydrateRangeInputs(pop);
 
     pop.querySelectorAll("[data-transition-field]").forEach((input) => {
       const updateReadout = () => {
@@ -6390,6 +6499,43 @@
       applyPreviewDropWaveEffect(state.ui.currentTime, getActiveOverlayItemsAt(state.ui.currentTime));
       if (isVideoCropModalOpen()) renderVideoCropModalPreview(state.ui.currentTime);
     });
+  }
+
+  function initPreviewResizeObserver() {
+    if (previewResizeObserver) return;
+    const targets = [
+      els.dropZone,
+      document.getElementById("projectPreview"),
+      document.getElementById("panelRight"),
+      document.querySelector(".panelRight")
+    ].filter(Boolean);
+
+    if (typeof ResizeObserver !== "function") {
+      window.addEventListener("resize", schedulePreviewFrameRefresh);
+      return;
+    }
+
+    previewResizeObserver = new ResizeObserver(() => {
+      schedulePreviewFrameRefresh();
+    });
+    targets.forEach((node) => previewResizeObserver.observe(node));
+    window.addEventListener("resize", schedulePreviewFrameRefresh);
+  }
+
+  function renderPreviewOverlays(timeSec = state.ui.currentTime) {
+    const tt = Math.max(0, Math.min(state.ui.viewDuration, Number(timeSec || 0)));
+    const activeOverlays = getActiveOverlayItemsAt(tt);
+    overlayEngine?.renderOverlays?.(els.dropZone, activeOverlays, {
+      resolutionName: state.settings.resolutionName,
+      aspectRatio: state.settings.aspectRatio,
+      currentTime: tt
+    });
+    if (transport?.isPlaying?.()) {
+      clearPreviewOverlayInteraction();
+      return;
+    }
+    if (getSelectedActiveVideoAt(tt)) renderPreviewVideoInteraction(tt);
+    else renderPreviewOverlayInteraction(tt);
   }
 
   function createManagedPreviewVideo(id = "") {
@@ -7374,19 +7520,6 @@
     }
     state.ui.previewClipId = primaryFrame.overlayClip?.id || primaryFrame.baseClip?.id || primaryFrame.clip?.id || null;
     const activeOverlays = getActiveOverlayItemsAt(tt);
-    const renderPreviewOverlays = () => {
-      overlayEngine?.renderOverlays?.(els.dropZone, activeOverlays, {
-        resolutionName: state.settings.resolutionName,
-        aspectRatio: state.settings.aspectRatio,
-        currentTime: tt
-      });
-      if (transport?.isPlaying?.()) {
-        clearPreviewOverlayInteraction();
-        return;
-      }
-      if (getSelectedActiveVideoAt(tt)) renderPreviewVideoInteraction(tt);
-      else renderPreviewOverlayInteraction(tt);
-    };
     const activeSections = frames.map((frame) => Math.max(1, Number(frame.section || 1)));
     const frameBySection = new Map(frames.map((frame) => [Math.max(1, Number(frame.section || 1)), frame]));
     const knownSections = [...new Set([...getActivePreviewSections(), ...activeSections, 1])];
@@ -7423,7 +7556,7 @@
     applyPreviewZoomEffect(tt, activeOverlays, frames);
     applyPreviewDropWaveEffect(tt, activeOverlays);
     if (isVideoCropModalOpen()) renderVideoCropModalPreview(tt);
-    renderPreviewOverlays();
+    renderPreviewOverlays(tt);
   }
 
   function setPreviewToClip(clipId) {
@@ -7626,6 +7759,7 @@
           const side = handle.dataset.side;
           const section = Math.max(1, Number(handle.closest(".clip")?.dataset.section || 1));
           if (!id || !kind) return;
+          document.body?.classList.add("fade-dragging");
           if (e.shiftKey) selectSectionItems(kind, section, { primaryKind: kind, primaryId: id });
           else if (e.ctrlKey || e.metaKey) toggleSelection(kind, id, section);
           else selectSingle(kind, id, section);
@@ -7668,6 +7802,7 @@
           const onUp = () => {
             hideTimelineValueBubble();
             state.ui.internalDragging = false;
+            document.body?.classList.remove("fade-dragging");
             window.removeEventListener("mousemove", onMove);
             window.removeEventListener("mouseup", onUp);
             if (moved) commitHistorySnapshot(historyBefore);
@@ -8055,6 +8190,8 @@
     renderVideoInspector();
     if (state.ui.transitionPopover.key) renderTransitionPopover();
     updateTimeReadout();
+    hydrateRangeInputs();
+    updateZoomValue();
   }
 
   function prefersReducedMotion() {
@@ -8119,6 +8256,168 @@
           rose: "#be185d",
           spotlight: "#f59e0b"
         };
+  }
+
+  function getCssToken(name, fallback) {
+    try {
+      return getComputedStyle(document.body).getPropertyValue(name).trim() || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function getPalettePreviewSeed(value) {
+    const raw = String(value ?? "city");
+    let seed = 0;
+    for (let i = 0; i < raw.length; i += 1) seed = (seed + raw.charCodeAt(i) * (i + 3)) % 997;
+    return seed;
+  }
+
+  function loadPalettePreviewImage() {
+    if (palettePreviewImageRequested || typeof Image !== "function") return;
+    palettePreviewImageRequested = true;
+    const img = new Image();
+    img.onload = () => {
+      palettePreviewImage = img;
+      palettePreviewImageReady = true;
+      buildPalettes();
+    };
+    img.onerror = () => {
+      palettePreviewImage = null;
+      palettePreviewImageReady = false;
+      console.warn("[VideoSmith] Failed to load preview_city_bg.svg. Using canvas fallback.");
+      buildPalettes();
+    };
+    img.src = new URL("./assets/preview_city_bg.svg", window.location.href).href;
+  }
+
+  function drawPaletteCityFallback(ctx, x, y, w, h, options = {}) {
+    const theme = getPalettePreviewTheme();
+    const seed = getPalettePreviewSeed(options.variant ?? options.overlay?.overlayType ?? "fallback");
+    const sky = ctx.createLinearGradient(x, y, x, y + h);
+    if (theme.dark) {
+      sky.addColorStop(0, "#182131");
+      sky.addColorStop(0.48, "#263348");
+      sky.addColorStop(1, "#0b1119");
+    } else {
+      sky.addColorStop(0, "#cfd9e7");
+      sky.addColorStop(0.5, "#b8c5d6");
+      sky.addColorStop(1, "#7c8898");
+    }
+    ctx.fillStyle = sky;
+    ctx.fillRect(x, y, w, h);
+
+    const glow = ctx.createRadialGradient(x + w * 0.68, y + h * 0.28, 0, x + w * 0.68, y + h * 0.28, w * 0.72);
+    glow.addColorStop(0, theme.dark ? "rgba(125,172,203,0.24)" : "rgba(255,245,218,0.36)");
+    glow.addColorStop(1, "rgba(125,172,203,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(x, y, w, h);
+
+    for (let i = 0; i < 10; i += 1) {
+      const jitter = (((seed + i * 37) % 23) - 11) / 100;
+      const bw = w * (0.075 + (((seed + i * 13) % 24) / 500));
+      const bh = h * (0.34 + (((seed + i * 19) % 30) / 100));
+      const bx = x + (i / 9) * w - bw * 0.5 + jitter * w;
+      const by = y + h * 0.72 - bh;
+      const building = ctx.createLinearGradient(bx, by, bx + bw, by + bh);
+      building.addColorStop(0, theme.dark ? "#243347" : "#7c8998");
+      building.addColorStop(0.48, theme.dark ? "#111a25" : "#5f6b7a");
+      building.addColorStop(1, theme.dark ? "#303d50" : "#95a2b1");
+      ctx.fillStyle = building;
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = theme.dark ? "rgba(215,230,245,0.34)" : "rgba(255,255,255,0.45)";
+      for (let row = 0; row < 5; row += 1) {
+        for (let col = 0; col < 3; col += 1) {
+          if ((seed + i + row + col) % 3 === 0) continue;
+          const wx = bx + bw * (0.18 + col * 0.22);
+          const wy = by + bh * (0.18 + row * 0.13);
+          ctx.fillRect(wx, wy, Math.max(2, bw * 0.1), Math.max(1, h * 0.012));
+        }
+      }
+    }
+
+    ctx.fillStyle = theme.dark ? "rgba(5,8,13,0.72)" : "rgba(48,57,70,0.48)";
+    ctx.beginPath();
+    ctx.moveTo(x, y + h * 0.72);
+    ctx.lineTo(x + w, y + h * 0.72);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x, y + h);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = theme.dark ? "rgba(203,213,225,0.2)" : "rgba(255,255,255,0.34)";
+    ctx.lineWidth = Math.max(1, w * 0.012);
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.48, y + h * 0.74);
+    ctx.lineTo(x + w * 0.38, y + h);
+    ctx.moveTo(x + w * 0.54, y + h * 0.74);
+    ctx.lineTo(x + w * 0.66, y + h);
+    ctx.stroke();
+
+    ctx.strokeStyle = theme.dark ? "rgba(248,196,112,0.26)" : "rgba(245,158,11,0.22)";
+    ctx.lineWidth = Math.max(1, w * 0.018);
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.1, y + h * 0.82);
+    ctx.lineTo(x + w * 0.34, y + h * 0.79);
+    ctx.moveTo(x + w * 0.66, y + h * 0.8);
+    ctx.lineTo(x + w * 0.92, y + h * 0.78);
+    ctx.stroke();
+  }
+
+  function drawPaletteCityBackground(ctx, x, y, w, h, options = {}) {
+    if (!ctx || w <= 0 || h <= 0) return;
+    const theme = getPalettePreviewTheme();
+    const overlay = options.overlay || null;
+    const currentTime = Number(options.currentTime || 0);
+    let zoom = Math.max(1, Number(options.zoom || 1));
+    let panX = Number(options.panX || 0);
+    let panY = Number(options.panY || 0);
+    if (overlay && (overlay.overlayType === "zoom_focus" || overlay.overlayType === "zoom_out_focus")) {
+      const total = Math.max(0.2, Number(overlay.duration || 1));
+      const local = Math.max(0, Math.min(1, currentTime / total));
+      const eased = local * local * (3 - (2 * local));
+      const direction = overlay.overlayType === "zoom_out_focus" ? 1 - eased : eased;
+      zoom += 0.08 * direction;
+      panX += (0.5 - Math.max(0, Math.min(1, Number(overlay.x ?? 0.5)))) * 0.08 * direction;
+      panY += (0.5 - Math.max(0, Math.min(1, Number(overlay.y ?? 0.5)))) * 0.08 * direction;
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+    let drewImage = false;
+    if (palettePreviewImageReady && palettePreviewImage?.complete) {
+      try {
+        const iw = palettePreviewImage.naturalWidth || palettePreviewImage.width || 1600;
+        const ih = palettePreviewImage.naturalHeight || palettePreviewImage.height || 900;
+        const scale = Math.max(w / iw, h / ih) * zoom;
+        const dw = iw * scale;
+        const dh = ih * scale;
+        const dx = x + (w - dw) * 0.5 + (panX * w);
+        const dy = y + (h - dh) * 0.5 + (panY * h);
+        ctx.drawImage(palettePreviewImage, dx, dy, dw, dh);
+        drewImage = true;
+      } catch (_) {
+        drewImage = false;
+      }
+    }
+    if (!drewImage) drawPaletteCityFallback(ctx, x, y, w, h, options);
+
+    if (options.tint) {
+      ctx.fillStyle = options.tint;
+      ctx.fillRect(x, y, w, h);
+    }
+    if (options.scrim !== false) {
+      ctx.fillStyle = getCssToken("--preview-scrim", theme.dark ? "rgba(2,6,12,0.28)" : "rgba(255,255,255,0.16)");
+      ctx.fillRect(x, y, w, h);
+    }
+    const vignette = ctx.createRadialGradient(x + w * 0.5, y + h * 0.48, Math.min(w, h) * 0.08, x + w * 0.5, y + h * 0.5, Math.max(w, h) * 0.66);
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, theme.dark ? "rgba(0,0,0,0.34)" : "rgba(15,23,42,0.16)");
+    ctx.fillStyle = vignette;
+    ctx.fillRect(x, y, w, h);
+    ctx.restore();
   }
 
   function createFxPalettePreviewOverlay(type) {
@@ -8297,9 +8596,10 @@
   }
 
   function preparePalettePreviewCanvas(canvas) {
-    const bounds = canvas.getBoundingClientRect?.() || { width: canvas.clientWidth || 1, height: canvas.clientHeight || 1 };
-    const cssWidth = Math.max(1, Math.round(bounds.width || canvas.clientWidth || 1));
-    const cssHeight = Math.max(1, Math.round(bounds.height || canvas.clientHeight || 1));
+    const bounds = canvas.getBoundingClientRect?.() || { width: canvas.clientWidth || 0, height: canvas.clientHeight || 0 };
+    const parentBounds = canvas.parentElement?.getBoundingClientRect?.() || { width: canvas.parentElement?.clientWidth || 0, height: canvas.parentElement?.clientHeight || 0 };
+    const cssWidth = Math.max(1, Math.round(bounds.width || canvas.clientWidth || parentBounds.width || 116));
+    const cssHeight = Math.max(1, Math.round(bounds.height || canvas.clientHeight || parentBounds.height || Math.round(cssWidth * 9 / 16)));
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== Math.round(cssWidth * dpr) || canvas.height !== Math.round(cssHeight * dpr)) {
       canvas.width = Math.round(cssWidth * dpr);
@@ -8318,8 +8618,8 @@
     if (!prepared) return;
     const { ctx, width, height } = prepared;
     const theme = getPalettePreviewTheme();
-    const pad = 10;
-    const frameRadius = 10;
+    const pad = 6;
+    const frameRadius = 4;
     const frameWidth = Math.max(1, width - (pad * 2));
     const frameHeight = Math.max(1, height - (pad * 2));
     const p = Math.max(0, Math.min(1, Number(progress || 0)));
@@ -8343,18 +8643,33 @@
     ctx.fillStyle = theme.stage;
     ctx.fillRect(pad, pad, frameWidth, frameHeight);
 
-    const drawCardFrame = (x, y, w, h, colors) => {
+    const drawCardFrame = (x, y, w, h, colors = theme.before, frameOptions = {}) => {
       ctx.save();
       roundedRectPath(x, y, w, h, frameRadius);
       ctx.clip();
+      drawPaletteCityBackground(ctx, x, y, w, h, {
+        variant: frameOptions.variant || colors?.[0] || type,
+        zoom: frameOptions.zoom || 1,
+        panX: frameOptions.panX || 0,
+        panY: frameOptions.panY || 0,
+        scrim: true
+      });
       const grad = ctx.createLinearGradient(x, y, x + w, y + h);
-      grad.addColorStop(0, colors[0]);
-      grad.addColorStop(1, colors[1]);
+      grad.addColorStop(0, colors?.[0] || "rgba(56,189,248,0.22)");
+      grad.addColorStop(1, colors?.[1] || "rgba(15,23,42,0)");
+      ctx.globalAlpha = theme.dark ? 0.2 : 0.15;
       ctx.fillStyle = grad;
       ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = 1;
       ctx.fillStyle = theme.frameDetail;
-      ctx.fillRect(x + 8, y + 8, w * 0.52, 6);
-      ctx.fillRect(x + 8, y + 20, w * 0.34, 5);
+      ctx.fillRect(x + Math.max(6, w * 0.07), y + Math.max(6, h * 0.1), w * 0.42, Math.max(2, h * 0.04));
+      ctx.fillRect(x + Math.max(6, w * 0.07), y + Math.max(14, h * 0.24), w * 0.26, Math.max(2, h * 0.035));
+      ctx.restore();
+      ctx.save();
+      roundedRectPath(x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1), frameRadius);
+      ctx.strokeStyle = theme.frameDetail;
+      ctx.lineWidth = 1;
+      ctx.stroke();
       ctx.restore();
     };
 
@@ -8471,12 +8786,13 @@
         revealCanvas.height = Math.max(1, Math.round(frameHeight));
         const revealCtx = revealCanvas.getContext("2d");
         if (revealCtx) {
-          const grad = revealCtx.createLinearGradient(0, 0, frameWidth, frameHeight);
-          grad.addColorStop(0, theme.after[0]);
-          grad.addColorStop(1, theme.after[1]);
-          revealCtx.fillStyle = grad;
-          revealCtx.fillRect(0, 0, frameWidth, frameHeight);
-          revealCtx.fillStyle = "rgba(110, 231, 255, 0.14)";
+          drawPaletteCityBackground(revealCtx, 0, 0, frameWidth, frameHeight, {
+            variant: "cyber-reveal",
+            zoom: 1.03,
+            panX: 0.03,
+            scrim: true
+          });
+          revealCtx.fillStyle = theme.dark ? "rgba(110, 231, 255, 0.13)" : "rgba(37, 99, 235, 0.12)";
           revealCtx.fillRect(frameWidth * 0.18, frameHeight * 0.12, frameWidth * 0.4, 8);
           revealCtx.fillRect(frameWidth * 0.48, frameHeight * 0.62, frameWidth * 0.28, 6);
           revealCtx.globalCompositeOperation = "destination-in";
@@ -8574,6 +8890,8 @@
 
     function renderStatic() {
       drawTransitionPalettePreviewCanvas(canvas, item.type, item.type === "fade" ? 0.42 : 0.5, { animated: false });
+      previewEl.classList.add("hasCanvas");
+      previewEl.classList.remove("hasError");
       previewEl.classList.remove("isPreviewing");
       cardEl.classList.remove("isPreviewing");
       cycleStartMs = 0;
@@ -8620,11 +8938,20 @@
     }
 
     renderStatic();
+    requestAnimationFrame(() => {
+      if (!disposed) renderStatic();
+    });
     const handleEnter = () => startPreview();
     const handleLeave = () => stopPreview();
+    const handleFocusIn = () => startPreview();
+    const handleFocusOut = (event) => {
+      if (!cardEl.contains(event.relatedTarget)) stopPreview();
+    };
     const handleDragStart = () => stopPreview();
     cardEl.addEventListener("pointerenter", handleEnter);
     cardEl.addEventListener("pointerleave", handleLeave);
+    cardEl.addEventListener("focusin", handleFocusIn);
+    cardEl.addEventListener("focusout", handleFocusOut);
     cardEl.addEventListener("dragstart", handleDragStart);
 
     return {
@@ -8635,6 +8962,8 @@
         stopPreview();
         cardEl.removeEventListener("pointerenter", handleEnter);
         cardEl.removeEventListener("pointerleave", handleLeave);
+        cardEl.removeEventListener("focusin", handleFocusIn);
+        cardEl.removeEventListener("focusout", handleFocusOut);
         cardEl.removeEventListener("dragstart", handleDragStart);
       }
     };
@@ -8666,8 +8995,19 @@
     let disposed = false;
     let cycleStartMs = 0;
 
-    function clearPreviewFrame() {
-      overlayEngine.clearCanvas?.(canvas);
+    function drawFrame(currentTimeSec) {
+      const rendered = overlayEngine.renderFxPreviewCanvas(canvas, overlay, {
+        currentTime: currentTimeSec,
+        resolutionName: "HD",
+        aspectRatio: "16:9",
+        drawBackground: drawPaletteCityBackground
+      });
+      previewEl.classList.toggle("hasCanvas", rendered !== false);
+      previewEl.classList.toggle("hasError", rendered === false);
+    }
+
+    function renderStatic() {
+      drawFrame(Math.min(0.35, Number(overlay.duration || 1) * 0.45));
       previewEl.classList.remove("isPreviewing");
       cardEl.classList.remove("isPreviewing");
       cycleStartMs = 0;
@@ -8683,14 +9023,7 @@
         clearTimeout(loopTimerId);
         loopTimerId = 0;
       }
-      clearPreviewFrame();
-    }
-
-    function drawFrame(currentTimeSec) {
-      overlayEngine.renderFxPreviewCanvas(canvas, overlay, {
-        currentTime: currentTimeSec,
-        resolutionName: "HD"
-      });
+      renderStatic();
     }
 
     function scheduleFrame(timestamp) {
@@ -8705,7 +9038,7 @@
         return;
       }
 
-      clearPreviewFrame();
+      renderStatic();
       if (prefersReducedMotion()) {
         running = false;
         return;
@@ -8721,6 +9054,10 @@
 
     function startPreview() {
       if (disposed) return;
+      if (prefersReducedMotion()) {
+        renderStatic();
+        return;
+      }
       stopPreview();
       running = true;
       previewEl.classList.add("isPreviewing");
@@ -8731,10 +9068,20 @@
 
     const handleEnter = () => startPreview();
     const handleLeave = () => stopPreview();
+    const handleFocusIn = () => startPreview();
+    const handleFocusOut = (event) => {
+      if (!cardEl.contains(event.relatedTarget)) stopPreview();
+    };
     const handleDragStart = () => stopPreview();
 
+    renderStatic();
+    requestAnimationFrame(() => {
+      if (!disposed) renderStatic();
+    });
     cardEl.addEventListener("pointerenter", handleEnter);
     cardEl.addEventListener("pointerleave", handleLeave);
+    cardEl.addEventListener("focusin", handleFocusIn);
+    cardEl.addEventListener("focusout", handleFocusOut);
     cardEl.addEventListener("dragstart", handleDragStart);
 
     return {
@@ -8745,6 +9092,8 @@
         stopPreview();
         cardEl.removeEventListener("pointerenter", handleEnter);
         cardEl.removeEventListener("pointerleave", handleLeave);
+        cardEl.removeEventListener("focusin", handleFocusIn);
+        cardEl.removeEventListener("focusout", handleFocusOut);
         cardEl.removeEventListener("dragstart", handleDragStart);
       }
     };
@@ -8754,6 +9103,7 @@
     const div = document.createElement("div");
     div.className = "paletteItem";
     div.draggable = true;
+    div.tabIndex = 0;
     div.dataset.dragType = options.dragType;
     Object.entries(options.dataset || {}).forEach(([key, value]) => {
       if (value == null) return;
@@ -8785,15 +9135,26 @@
 
     const dragGlyph = document.createElement("div");
     dragGlyph.className = "dragGlyph";
-    dragGlyph.textContent = "↘";
+    dragGlyph.textContent = "::";
     div.appendChild(dragGlyph);
 
     div.addEventListener("dragstart", (e) => {
       state.dragging.item = options.dragItem();
       window.__videosmithInternalDrag = true;
-      e.dataTransfer.effectAllowed = "copy";
-      e.dataTransfer.setData("text/plain", JSON.stringify(state.dragging.item));
-      e.dataTransfer.setData("application/x-videosmith-item", JSON.stringify(state.dragging.item));
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = "copy";
+        e.dataTransfer.setData("text/plain", JSON.stringify(state.dragging.item));
+        e.dataTransfer.setData("application/x-videosmith-item", JSON.stringify(state.dragging.item));
+        const dragImage = createPaletteDragImage(item, state.dragging.item);
+        dragImage.getBoundingClientRect?.();
+        if (typeof e.dataTransfer.setDragImage === "function") e.dataTransfer.setDragImage(dragImage, 18, 18);
+      }
+      div.classList.add("isDragging");
+      document.body?.classList.add("palette-dragging");
+    });
+
+    div.addEventListener("dragend", () => {
+      clearPaletteDragImage();
     });
 
     return div;
@@ -8862,6 +9223,7 @@
   }
 
   function buildPalettes() {
+    loadPalettePreviewImage();
     disposePalettePreviewControllers();
     fillBackgroundClipColorSelect();
     if (els.editToolPalette) els.editToolPalette.innerHTML = "";
@@ -8902,6 +9264,7 @@
       });
       els.effectsPalette?.appendChild(div);
     });
+    hydrateRangeInputs();
   }
 
   function fillSelects() {
@@ -9396,12 +9759,16 @@
       visible: !!inVideo,
       startSec,
       durationSec: 5,
-      section
+      section,
+      kind: "media",
+      label: "Media"
     };
     state.ui.dropPreview.audio = {
       visible: !!inAudio,
       startSec,
-      durationSec: 5
+      durationSec: 5,
+      kind: "audio",
+      label: "Audio"
     };
     renderTimeline();
   }
@@ -9454,12 +9821,16 @@
       visible: inVideo,
       startSec,
       durationSec: 5,
-      section: videoSection
+      section: videoSection,
+      kind: "media",
+      label: "Media"
     };
     state.ui.dropPreview.audio = {
       visible: inAudio,
       startSec,
-      durationSec: 5
+      durationSec: 5,
+      kind: "audio",
+      label: "Audio"
     };
     renderTimeline();
 
@@ -9499,12 +9870,16 @@
       visible: inVideo,
       startSec,
       durationSec: Math.max(MIN_TIMELINE_CLIP_SEC, durationInfo.videoDur || 5),
-      section: videoSection
+      section: videoSection,
+      kind: "media",
+      label: "Media"
     };
     state.ui.dropPreview.audio = {
       visible: inAudio,
       startSec,
-      durationSec: Math.max(MIN_TIMELINE_CLIP_SEC, durationInfo.audioDur || 5)
+      durationSec: Math.max(MIN_TIMELINE_CLIP_SEC, durationInfo.audioDur || 5),
+      kind: "audio",
+      label: "Audio"
     };
     renderTimeline();
   }
@@ -9549,6 +9924,7 @@
   window.addEventListener("dragend", () => {
     state.dragging.item = null;
     window.__videosmithInternalDrag = false;
+    clearPaletteDragImage();
     clearTransitionDropState();
     resetExternalDragState();
   });
@@ -10834,6 +11210,7 @@
       const data = safeParse(e.dataTransfer.getData("text/plain")) || state.dragging.item;
       const resolved = resolveTransitionDropTarget(e.clientX, e.clientY);
       state.dragging.item = null;
+      clearPaletteDragImage();
       const dropTime = window.PearlTimeline.pxToSeconds(Math.max(0, resolved.x), state.ui.pxPerSec);
       const section = resolved.section;
 
@@ -11003,11 +11380,16 @@
       Math.max(0, clientX - rect.left + Number(els.timelineViewport?.scrollLeft || 0)),
       state.ui.pxPerSec
     );
+    const previewDurationSec = Math.max(MIN_TIMELINE_CLIP_SEC, Number(durationSec || BACKGROUND_CLIP_DURATION_SEC));
+    const previewColor = normalizeBackgroundColor(state.dragging.item?.color || state.settings.backgroundClipColor || "#ffffff");
     state.ui.dropPreview.video = {
       visible: true,
       startSec,
-      durationSec: Math.max(MIN_TIMELINE_CLIP_SEC, Number(durationSec || BACKGROUND_CLIP_DURATION_SEC)),
-      section: getVideoSectionAtClientY(clientY)
+      durationSec: previewDurationSec,
+      section: getVideoSectionAtClientY(clientY),
+      kind: "background",
+      color: previewColor,
+      label: `${t("backgroundClipCardName", "배경 클립")} · ${formatTimelineSec(previewDurationSec)}s`
     };
     state.ui.dropPreview.audio = { visible: false, startSec: 0, durationSec: 0 };
     renderTimeline();
@@ -11304,7 +11686,7 @@
     persistenceState.projectFilePath = String(res.filePath || persistenceState.projectFilePath || "");
     persistenceState.manualSaveSignature = computePersistenceSignature();
     await clearAutosaveCache();
-    if (options.toast !== false) toast("저장 완료");
+    if (options.toast !== false) toast("프로젝트 저장 완료");
     return true;
   }
 
@@ -11375,11 +11757,18 @@
 
   els.btnLoad.onclick = async () => {
     const res = await window.pearl.loadProject();
-    if (!res.ok) return;
-    const obj = JSON.parse(res.json);
-    applyLoadedProjectDocument(obj, { filePath: res.filePath || "" });
-    await clearAutosaveCache();
-    toast("불러오기 완료");
+    if (!res?.ok) {
+      if (res?.error) showAlert(["프로젝트 파일을 불러오지 못했습니다.", res.error]);
+      return;
+    }
+    try {
+      const obj = JSON.parse(res.json);
+      applyLoadedProjectDocument(obj, { filePath: res.filePath || "" });
+      await clearAutosaveCache();
+      toast("프로젝트를 불러왔습니다.");
+    } catch (error) {
+      showAlert(["프로젝트 파일을 해석하지 못했습니다.", String(error?.message || error)]);
+    }
   };
 
   // Render
@@ -11404,6 +11793,12 @@
         internalPath: getRenderAudioSourcePath(a)
       }))
     };
+    const renderHints = {
+      hasNonAsciiText: renderOverlayItems.some((item) => String(item.overlayType || "text") === "text" && /[^\x00-\x7F]/.test(String(item.text || ""))),
+      hasCustomFont: renderOverlayItems.some((item) => String(item.overlayType || "text") === "text" && !!String(item.fontFile || "").trim()),
+      canvasTextFallbackLikely: renderOverlayItems.some((item) => String(item.overlayType || "text") === "text" && (/[\u2600-\u27BF]|\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDEFF]|\uD83E[\uDD00-\uDFFF]/.test(String(item.text || "")) || !!String(item.fontFile || "").trim())),
+      hasSpecialFx: renderOverlayItems.some((item) => String(item.overlayType || "text") !== "text")
+    };
 
     const payload = {
       project: renderProjectPayload,
@@ -11416,7 +11811,8 @@
         audioContainer: state.settings.audioContainer || "MP3",
         backgroundColor: normalizeBackgroundColor(state.settings.backgroundColor)
       },
-      region: state.ui.region
+      region: state.ui.region,
+      renderHints
     };
     const res = await window.pearl.openRenderWindow?.({
       payload,
@@ -11438,9 +11834,10 @@
     else if (s.status === "done") els.renderStatus.textContent = "완료";
     else if (s.status === "error") {
       const debugPath = String(s.debugLogPath || "");
+      const errorDetail = String(s.errorDetail || s.message || "");
       els.renderStatus.textContent = debugPath
-        ? `오류 로그 생성됨: ${debugPath}`
-        : `오류: ${s.message || ""}`;
+        ? `${errorDetail || "오류"} · 로그: ${debugPath}`
+        : `오류: ${errorDetail}`;
     }
     else els.renderStatus.textContent = "";
   });
@@ -11506,12 +11903,22 @@
   function applyTimelineZoom(nextPxPerSec, anchorClientX = null) {
     const currentPxPerSec = Math.max(20, Math.min(200, Number(state.ui.pxPerSec || 90)));
     const next = Math.max(20, Math.min(200, Number(nextPxPerSec || currentPxPerSec)));
-    if (Math.abs(next - currentPxPerSec) < 1e-6) return;
+    const syncZoomControls = () => {
+      if (els.zoom) {
+        els.zoom.value = String(next);
+        updateRangeVisual(els.zoom);
+      }
+      updateZoomValue();
+    };
+    if (Math.abs(next - currentPxPerSec) < 1e-6) {
+      syncZoomControls();
+      return;
+    }
     const viewport = els.timelineViewport;
     const anchor = getTimelineZoomAnchor(anchorClientX);
     const preservedScrollTop = Number(viewport?.scrollTop || 0);
     state.ui.pxPerSec = next;
-    if (els.zoom) els.zoom.value = String(next);
+    syncZoomControls();
     renderTimeline();
     if (!viewport) return;
     const targetLeft = TIMELINE_LABEL_COLUMN_PX + window.PearlTimeline.secondsToPx(anchor.timeSec, next) - anchor.pointerX;
@@ -11519,9 +11926,17 @@
   }
 
   // Zoom
-  els.zoom.oninput = () => {
-    applyTimelineZoom(Number(els.zoom.value));
-  };
+  if (els.zoom) {
+    els.zoom.oninput = () => {
+      applyTimelineZoom(Number(els.zoom.value));
+    };
+  }
+  els.btnZoomOut?.addEventListener("click", () => {
+    applyTimelineZoom(Number(els.zoom?.value || state.ui.pxPerSec || 90) - 10);
+  });
+  els.btnZoomIn?.addEventListener("click", () => {
+    applyTimelineZoom(Number(els.zoom?.value || state.ui.pxPerSec || 90) + 10);
+  });
 
   function enableWheelZoom() {
     const onWheel = (e) => {
@@ -11738,6 +12153,9 @@
   // Init
   async function init() {
     applyTheme();
+    setupRangeVisuals();
+    loadPalettePreviewImage();
+    updateZoomValue();
     const ok = await ensureTermsAccepted();
     if (!ok) return;
     try {
@@ -11764,6 +12182,7 @@
       debug: () => !!getDebugFlags().transport
     }) || null;
     applyAdaptiveLayout();
+    initPreviewResizeObserver();
     window.addEventListener("resize", () => {
       applyAdaptiveLayout();
       renderTimeline();

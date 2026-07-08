@@ -1,8 +1,8 @@
 (() => {
   window.PearlLangKo = {
     btnUpload: "파일 업로드",
-    btnSave: "프리셋 저장 (Ctrl+S)",
-    btnLoad: "불러오기",
+    btnSave: "프로젝트 저장 (Ctrl+S)",
+    btnLoad: "프로젝트 불러오기",
     btnRender: "렌더 (Ctrl+R)",
     btnSettings: "설정",
     btnPickOutputFolder: "폴더 지정",
@@ -51,6 +51,48 @@
     termsTitle: "소프트웨어 이용 약관",
     termsAgreeText: "[필수] 위 \"소프트웨어 이용 약관\"을 읽었으며, 내용에 동의합니다.",
     settingsTitle: "설정",
+    settingsLegalTitle: "법적 고지",
+    btnThirdPartyNotices: "오픈소스 고지",
+    thirdPartyNoticesTitle: "오픈소스 및 제3자 고지",
+    thirdPartyNoticesHint: "FFmpeg 및 제3자 구성요소의 라이선스 정보를 확인합니다.",
+    thirdPartyNoticesBody: `
+      <div class="noticeIntro">
+        <p>VideoSmith는 아래 오픈소스 및 제3자 구성요소를 사용합니다. 각 구성요소는 원 저작권자에게 귀속되며, 해당 라이선스 조건이 우선 적용됩니다.</p>
+        <p class="noticeCaution">이 고지는 법률 자문이 아닙니다. 공개 배포 전에는 실제 패키징된 바이너리, 라이선스 전문, 소스 제공 방식, 특허/코덱 관련 조건을 최종 확인해야 합니다.</p>
+      </div>
+      <section class="noticeSection">
+        <h4>FFmpeg / FFprobe</h4>
+        <ul>
+          <li><b>FFmpeg</b>: ffmpeg-static 5.3.0을 통해 번들됩니다. 현재 로컬 바이너리는 FFmpeg 6.0이며 패키지 라이선스는 GPL-3.0-or-later입니다.</li>
+          <li>현재 FFmpeg 바이너리 구성에는 <span class="noticeCode">--enable-gpl</span> 및 <span class="noticeCode">--enable-nonfree</span> 플래그가 확인됩니다. 배포 전 재배포 가능 여부와 소스 제공 방식을 별도 검토해야 합니다.</li>
+          <li><b>FFprobe</b>: @ffprobe-installer/ffprobe 2.1.2를 우선 사용합니다. 현재 mac arm64 패키지는 LGPL-2.1이며, 다른 플랫폼 패키지는 GPL-3.0일 수 있습니다.</li>
+          <li>FFmpeg/FFprobe를 배포하는 경우 적용 라이선스에 따라 라이선스 전문, 저작권 표시, 비보증 고지, 실제 바이너리와 일치하는 소스 코드 또는 소스 다운로드 위치를 제공해야 합니다.</li>
+          <li>참고: ffmpeg.org, ffmpeg.org/legal.html, github.com/FFmpeg/FFmpeg</li>
+        </ul>
+      </section>
+      <section class="noticeSection">
+        <h4>주요 런타임 구성요소</h4>
+        <div class="noticeTable" role="table" aria-label="Third-party runtime package licenses">
+          <div class="noticeRow noticeRowHead" role="row"><span>구성요소</span><span>버전</span><span>라이선스/비고</span></div>
+          <div class="noticeRow" role="row"><span>ffmpeg-static</span><span>5.3.0</span><span>GPL-3.0-or-later, FFmpeg 6.0 바이너리 포함</span></div>
+          <div class="noticeRow" role="row"><span>@ffprobe-installer/ffprobe</span><span>2.1.2</span><span>LGPL-2.1 래퍼, 플랫폼 바이너리 라이선스 상이</span></div>
+          <div class="noticeRow" role="row"><span>ffprobe-static</span><span>3.1.0</span><span>MIT 패키지, 번들 바이너리는 대상 플랫폼별 확인 필요</span></div>
+          <div class="noticeRow" role="row"><span>fluent-ffmpeg</span><span>2.1.3</span><span>MIT</span></div>
+          <div class="noticeRow" role="row"><span>pitchfinder</span><span>2.3.4</span><span>GNU v3</span></div>
+          <div class="noticeRow" role="row"><span>nanoid</span><span>5.1.6</span><span>MIT</span></div>
+          <div class="noticeRow" role="row"><span>Electron</span><span>29.4.6</span><span>MIT, Chromium/Node.js 관련 고지 포함</span></div>
+        </div>
+      </section>
+      <section class="noticeSection">
+        <h4>배포 전 확인 항목</h4>
+        <ol>
+          <li>패키징 결과물에 실제 포함되는 FFmpeg/FFprobe 바이너리의 라이선스와 구성 플래그를 확인합니다.</li>
+          <li>GPL/LGPL/MIT 등 각 라이선스 전문과 저작권 표시를 앱 또는 배포물에 포함합니다.</li>
+          <li>FFmpeg/FFprobe 바이너리를 배포한다면 해당 바이너리와 일치하는 소스 코드 또는 소스 다운로드 위치를 함께 제공합니다.</li>
+          <li>약관이나 UI 문구가 오픈소스 라이선스가 허용하는 권리를 제한하지 않도록 유지합니다.</li>
+        </ol>
+      </section>
+    `,
     outputFolderDefault: "기본값: 프로젝트 폴더",
     close: "닫기",
     genericClip: "클립",

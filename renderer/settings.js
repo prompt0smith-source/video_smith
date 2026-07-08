@@ -1,6 +1,8 @@
 ﻿(() => {
   const STORAGE_KEY = "pearl.lang";
   let isSettingsOpen = false;
+  let isThirdPartyOpen = false;
+  let thirdPartyReturnFocus = null;
   let gearAnim = null;
 
   function getDict(lang) {
@@ -19,13 +21,13 @@
     const gear = document.getElementById("gearIcon");
     if (!gear || !gear.animate) return;
     const current = getRotationDeg(gear);
-    const target = current + direction * 45;
+    const target = current + direction * 32;
     if (gearAnim) gearAnim.cancel();
     gearAnim = gear.animate([
       { transform: `rotate(${current}deg) scale(1)` },
-      { transform: `rotate(${target}deg) scale(1.02)` }
+      { transform: `rotate(${target}deg) scale(1.01)` }
     ], {
-      duration: 180,
+      duration: 140,
       easing: "cubic-bezier(0.2, 0, 0.2, 1)",
       fill: "forwards"
     });
@@ -43,6 +45,26 @@
     overlay.classList.toggle("hidden", !next);
     drawer.setAttribute("aria-hidden", next ? "false" : "true");
     animateGear(next ? +1 : -1);
+  }
+
+  function toggleThirdPartyNotices(open) {
+    const modal = document.getElementById("thirdPartyModal");
+    if (!modal) return;
+    const next = typeof open === "boolean" ? open : !isThirdPartyOpen;
+    if (next === isThirdPartyOpen) return;
+
+    isThirdPartyOpen = next;
+    modal.classList.toggle("hidden", !next);
+    modal.setAttribute("aria-hidden", next ? "false" : "true");
+
+    if (next) {
+      thirdPartyReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      document.getElementById("thirdPartyModalOk")?.focus();
+    } else {
+      const target = thirdPartyReturnFocus;
+      thirdPartyReturnFocus = null;
+      if (target && document.contains(target)) target.focus();
+    }
   }
 
   function applyLanguage(lang) {
@@ -97,6 +119,10 @@
     const btnOpen = document.getElementById("btnSettings");
     const overlay = document.getElementById("settingsOverlay");
     const btnClose = document.getElementById("btnSettingsClose");
+    const thirdPartyModal = document.getElementById("thirdPartyModal");
+    const btnThirdParty = document.getElementById("btnThirdPartyNotices");
+    const btnThirdPartyClose = document.getElementById("thirdPartyModalClose");
+    const btnThirdPartyOk = document.getElementById("thirdPartyModalOk");
     const sel = document.getElementById("selLang");
     const lang = localStorage.getItem(STORAGE_KEY) || "ko";
     if (sel) sel.value = lang;
@@ -104,13 +130,32 @@
     btnOpen?.addEventListener("click", () => toggleSettings(true));
     overlay?.addEventListener("click", () => toggleSettings(false));
     btnClose?.addEventListener("click", () => toggleSettings(false));
+    btnThirdParty?.addEventListener("click", () => toggleThirdPartyNotices(true));
+    btnThirdPartyClose?.addEventListener("click", () => toggleThirdPartyNotices(false));
+    btnThirdPartyOk?.addEventListener("click", () => toggleThirdPartyNotices(false));
+    thirdPartyModal?.addEventListener("mousedown", (e) => {
+      if (e.target === thirdPartyModal) toggleThirdPartyNotices(false);
+    });
     sel?.addEventListener("change", () => applyLanguage(sel.value));
     window.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") toggleSettings(false);
+      if (e.key !== "Escape") return;
+      if (isThirdPartyOpen) {
+        toggleThirdPartyNotices(false);
+        return;
+      }
+      toggleSettings(false);
     });
 
     applyLanguage(lang);
   }
 
-  window.PearlSettings = { init, applyLanguage, getDict, toggleSettings, get isOpen(){ return isSettingsOpen; } };
+  window.PearlSettings = {
+    init,
+    applyLanguage,
+    getDict,
+    toggleSettings,
+    toggleThirdPartyNotices,
+    get isOpen(){ return isSettingsOpen; },
+    get isThirdPartyOpen(){ return isThirdPartyOpen; }
+  };
 })();

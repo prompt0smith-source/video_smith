@@ -23,6 +23,21 @@
     btnCancel: $("btnCancel"),
   };
 
+  function updateRangeVisual(input) {
+    if (!input || input.type !== "range") return;
+    const min = Number(input.min || 0);
+    const max = Number(input.max || 100);
+    const value = Number(input.value || min);
+    const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
+    input.style.setProperty("--range-pct", `${Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0))}%`);
+  }
+
+  function hydrateRangeInputs(root = document) {
+    if (!root) return;
+    if (root.matches?.('input[type="range"]')) updateRangeVisual(root);
+    root.querySelectorAll?.('input[type="range"]').forEach(updateRangeVisual);
+  }
+
   let tick = 0;
   let dotsTimer = null;
   let pseudoTimer = null;
@@ -45,6 +60,16 @@
   const fmtOptions = ["MP4", "MOV", "AVI", "MKV", "WMV", "WebM"];
   const audioFmtOptions = ["WAV", "AIFF", "FLAC", "MP3", "AAC"];
   const renderStageLabels = {
+    preflight_project: "프로젝트 검사 중",
+    preflight_fonts: "글꼴 검사 중",
+    preflight_effects: "효과 필터 검사 중",
+    preflight_drawtext: "1프레임 테스트 렌더 중",
+    preflight_frame: "프리플라이트 렌더 검사 중",
+    preflight_canvas_text: "안전한 텍스트 렌더링으로 전환 중",
+    actual_render_start: "실제 렌더링 시작",
+    render_no_progress_warning: "렌더 응답 확인 중",
+    render_watchdog_timeout: "응답 없음 감지, 렌더 프로세스 중단",
+    preflight_failed: "사전 검사 실패",
     encoder_finished: "인코더 종료 확인 중",
     moving_output: "출력 파일 이동 중",
     wrapping_up_render: "마무리 중",
@@ -200,6 +225,7 @@
     const tm = s?.timemark || "";
     const durationSec = Number(s?.durationSec || 0);
     const debugLogPath = String(s?.debugLogPath || "");
+    const errorDetail = String(s?.errorDetail || "");
     const durText = durationSec > 0 ? ` / ${durationSec.toFixed(1)}s` : "";
     const stageLabel = getRenderStageLabel(message);
     const stageText = stageLabel ? ` · ${stageLabel}` : "";
@@ -230,10 +256,11 @@
     } else if (status === "error") {
       stopPseudoProgress();
       stopDots();
-      els.dots.textContent = "렌더 실패";
+      els.dots.textContent = stageLabel || "렌더 실패";
+      const errorText = errorDetail || stageLabel || s?.message || "렌더 오류";
       els.meta.textContent = debugLogPath
-        ? `오류 로그: ${debugLogPath}`
-        : (s?.message || "렌더 오류");
+        ? `${errorText} · 오류 로그: ${debugLogPath}`
+        : errorText;
     } else if (status === "stopped") {
       stopPseudoProgress();
       stopDots();
@@ -293,9 +320,16 @@
   els.rwAspect?.addEventListener("change", pushSettingsToMain);
   els.rwFmt?.addEventListener("change", pushSettingsToMain);
   els.rwAudioFmt?.addEventListener("change", pushSettingsToMain);
+  document.addEventListener?.("input", (event) => {
+    if (event.target?.matches?.('input[type="range"]')) updateRangeVisual(event.target);
+  });
+  document.addEventListener?.("change", (event) => {
+    if (event.target?.matches?.('input[type="range"]')) updateRangeVisual(event.target);
+  });
 
   fillRenderSettingSelects();
   refreshModeUI();
+  hydrateRangeInputs();
   window.pearl.onRenderState((s) => applyState(s));
   window.pearl.getRenderState().then(applyState);
 })();

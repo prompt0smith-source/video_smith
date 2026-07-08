@@ -10,6 +10,16 @@
   const MIN_TIMELINE_SURFACE_PX = 980;
   const TIMELINE_TAIL_PX = 280;
   const TIMELINE_TIME_STEP_SEC = 0.01;
+  const clipOptionsIcon = `
+    <svg class="clipOptionsIcon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 7h9" />
+      <path d="M17 7h3" />
+      <circle cx="15" cy="7" r="2" />
+      <path d="M4 17h3" />
+      <path d="M11 17h9" />
+      <circle cx="9" cy="17" r="2" />
+    </svg>
+  `;
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function localeText(key, fallback) {
@@ -165,8 +175,14 @@
     if (!preview || !preview.visible || preview.durationSec <= 0) return;
     const div = document.createElement("div");
     div.className = "dropTargetHighlight";
+    const kind = String(preview.kind || "media").replace(/[^a-z0-9_-]/gi, "").toLowerCase() || "media";
+    const label = String(preview.label || "").trim().slice(0, 48);
+    div.dataset.dropKind = kind;
+    if (label) div.dataset.label = label;
+    if (preview.color) div.style.setProperty("--drop-preview-color", String(preview.color));
     div.style.left = `${secondsToPx(preview.startSec, pxPerSec)}px`;
     div.style.width = `${Math.max(28, secondsToPx(preview.durationSec, pxPerSec))}px`;
+    div.setAttribute("aria-hidden", "true");
     laneEl.appendChild(div);
   }
 
@@ -187,19 +203,35 @@
     return meta;
   }
 
-  function createFadeHandle(kind, id, side, widthPx, clipWidthPx, title) {
+  function createFadeHandle(kind, id, side, widthPx, clipWidthPx, title, durationSec = 0) {
     const handle = document.createElement("div");
     handle.className = `fadeHandle ${side}`;
     handle.dataset.kind = kind;
     handle.dataset.clipId = id;
     handle.dataset.side = side;
-    handle.title = title;
+    handle.dataset.label = side === "left" ? "Fade In" : "Fade Out";
+    handle.dataset.duration = format1(durationSec);
+    handle.setAttribute("aria-label", `${title} ${format1(durationSec)}s`);
+    handle.title = `${title} ${format1(durationSec)}s`;
     const maxRailWidth = Math.max(6, clipWidthPx * 0.44);
-    const minRailWidth = Math.min(12, maxRailWidth);
-    const railWidth = clamp(widthPx, minRailWidth, Math.max(minRailWidth, maxRailWidth));
-    const edgeOffset = Math.max(4, Math.min(14, clipWidthPx * 0.16));
+    const hasFade = Number(widthPx || 0) > 0.5;
+    const zeroWidth = Math.min(16, Math.max(8, maxRailWidth));
+    const minActiveWidth = Math.min(22, Math.max(12, maxRailWidth));
+    const railWidth = hasFade ? clamp(widthPx, minActiveWidth, Math.max(minActiveWidth, maxRailWidth)) : zeroWidth;
+    handle.classList.toggle("isZeroFade", !hasFade);
     handle.style.width = `${railWidth}px`;
-    handle.style.setProperty("--fade-handle-offset", `${edgeOffset}px`);
+    handle.style.setProperty("--fade-region-width", `${railWidth}px`);
+
+    const topRail = document.createElement("span");
+    topRail.className = "fadeRail fadeRailTop";
+    const bottomRail = document.createElement("span");
+    bottomRail.className = "fadeRail fadeRailBottom";
+    const grip = document.createElement("span");
+    grip.className = "fadeGrip";
+    const label = document.createElement("span");
+    label.className = "fadeLabel";
+    label.textContent = `${side === "left" ? "Fade In" : "Fade Out"} ${format1(durationSec)}s`;
+    handle.append(topRail, bottomRail, grip, label);
     return handle;
   }
 
@@ -405,8 +437,8 @@
 
       const fadeInWidth = secondsToPx(Math.max(0, Number(clip.manualFadeInSec || 0)), pxPerSec);
       const fadeOutWidth = secondsToPx(Math.max(0, Number(clip.manualFadeOutSec || 0)), pxPerSec);
-      div.appendChild(createFadeHandle("video", clip.id, "left", Math.max(22, fadeInWidth), clipWidth, "Fade In"));
-      div.appendChild(createFadeHandle("video", clip.id, "right", Math.max(22, fadeOutWidth), clipWidth, "Fade Out"));
+      div.appendChild(createFadeHandle("video", clip.id, "left", fadeInWidth, clipWidth, "Fade In", Number(clip.manualFadeInSec || 0)));
+      div.appendChild(createFadeHandle("video", clip.id, "right", fadeOutWidth, clipWidth, "Fade Out", Number(clip.manualFadeOutSec || 0)));
       div.appendChild(createTrimHandle("video", clip.id, "left"));
       div.appendChild(createTrimHandle("video", clip.id, "right"));
 
@@ -459,7 +491,7 @@
       const visualOptionsBtn = document.createElement("button");
       visualOptionsBtn.className = "videoClipOptionsBtn";
       visualOptionsBtn.type = "button";
-      visualOptionsBtn.innerHTML = "<span></span><span></span><span></span>";
+      visualOptionsBtn.innerHTML = clipOptionsIcon;
       visualOptionsBtn.setAttribute("aria-label", `${clip.name || localeText("genericClip", "Clip")} ${localeText("videoClipOptionsAria", "visual settings")}`);
       visualOptionsBtn.dataset.clipId = clip.id;
       div.appendChild(visualOptionsBtn);
@@ -537,8 +569,8 @@
 
       const fadeInWidth = secondsToPx(Math.max(0, Number(overlay.manualFadeInSec || 0)), pxPerSec);
       const fadeOutWidth = secondsToPx(Math.max(0, Number(overlay.manualFadeOutSec || 0)), pxPerSec);
-      div.appendChild(createFadeHandle("overlay", overlay.id, "left", Math.max(18, fadeInWidth), clipWidth, "Fade In"));
-      div.appendChild(createFadeHandle("overlay", overlay.id, "right", Math.max(18, fadeOutWidth), clipWidth, "Fade Out"));
+      div.appendChild(createFadeHandle("overlay", overlay.id, "left", fadeInWidth, clipWidth, "Fade In", Number(overlay.manualFadeInSec || 0)));
+      div.appendChild(createFadeHandle("overlay", overlay.id, "right", fadeOutWidth, clipWidth, "Fade Out", Number(overlay.manualFadeOutSec || 0)));
       div.appendChild(createTrimHandle("overlay", overlay.id, "left"));
       div.appendChild(createTrimHandle("overlay", overlay.id, "right"));
 
@@ -558,7 +590,7 @@
         const gear = document.createElement("button");
         gear.className = "overlayGearBtn";
         gear.type = "button";
-        gear.innerHTML = "<span></span><span></span><span></span>";
+        gear.innerHTML = clipOptionsIcon;
         gear.setAttribute("aria-label", `${overlayLabel(overlay)} ${localeText("overlaySettingsAria", "settings")}`);
         gear.dataset.overlayId = overlay.id;
         gear.dataset.overlayType = overlay.overlayType;
@@ -638,8 +670,8 @@
 
       const fadeInWidth = secondsToPx(Math.max(0, Number(audio.manualFadeInSec || 0)), pxPerSec);
       const fadeOutWidth = secondsToPx(Math.max(0, Number(audio.manualFadeOutSec || 0)), pxPerSec);
-      div.appendChild(createFadeHandle("audio", audio.id, "left", Math.max(20, fadeInWidth), clipWidth, "Fade In"));
-      div.appendChild(createFadeHandle("audio", audio.id, "right", Math.max(20, fadeOutWidth), clipWidth, "Fade Out"));
+      div.appendChild(createFadeHandle("audio", audio.id, "left", fadeInWidth, clipWidth, "Fade In", Number(audio.manualFadeInSec || 0)));
+      div.appendChild(createFadeHandle("audio", audio.id, "right", fadeOutWidth, clipWidth, "Fade Out", Number(audio.manualFadeOutSec || 0)));
       div.appendChild(createTrimHandle("audio", audio.id, "left"));
       div.appendChild(createTrimHandle("audio", audio.id, "right"));
 

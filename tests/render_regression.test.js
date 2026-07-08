@@ -112,6 +112,7 @@ globalThis.__renderRegression = {
       timemark: "",
       durationSec: 0,
       message: "",
+      errorDetail: "",
       debugLogPath: "",
       outputPath: "",
       outputPaths: [],
@@ -127,6 +128,12 @@ globalThis.__renderRegression = {
   startRenderFromPayload,
   stopActiveRender,
   renderProject,
+  preflightRenderProject,
+  sanitizeRenderProjectForFfmpeg,
+  resolveVerifiedRenderFont,
+  containsNonAsciiText,
+  getTextScriptProfile,
+  collectPreflightSampleTimes,
   resToWH,
   getRenderFinalizingPercent,
   getExpectedRenderFrameCount,
@@ -135,6 +142,7 @@ globalThis.__renderRegression = {
   setMainWindow(win) { mainWindow = win; },
   setRenderWindow(win) { renderWindow = win; },
   setRenderProject(fn) { renderProject = fn; },
+  setPreflightRenderProject(fn) { preflightRenderProject = fn; },
   setCreateRenderDebugSession(fn) { createRenderDebugSession = fn; },
   setSuspendPid(fn) { suspendPid = fn; },
   setResumePid(fn) { resumePid = fn; }
@@ -149,6 +157,7 @@ globalThis.__renderRegression = {
     write() {},
     close() {}
   }));
+  api.setPreflightRenderProject(async (payload) => ({ ok: true, payload, warnings: [] }));
   return api;
 }
 
@@ -184,6 +193,8 @@ test("editor UI wires aspect ratio and timeline section controls", () => {
   assert.match(appSource, /aspectRatio:\s*state\.settings\.aspectRatio/);
   assert.match(appSource, /createBackgroundColorClip\(\{[\s\S]*aspectRatio:/);
   assert.match(appSource, /handlePreviewBackgroundSelection/);
+  assert.match(styles, /--aspect-modal-bg:/);
+  assert.match(styles, /\.aspectRatioPresetBtn\.active[\s\S]*--aspect-card-active-ring/);
   assert.match(styles, /button,[\s\S]*user-select:none/);
 });
 
@@ -240,7 +251,7 @@ test("render controls are job-aware and stale progress cannot mutate a newer ren
 
   assert.equal(api.activeRender.jobId, secondJobId);
   assert.equal(api.activeRender.percent, 0);
-  assert.equal(api.activeRender.message, "running");
+  assert.equal(api.activeRender.message, "actual_render_start");
 
   api.setActiveRender({
     jobId: 11,
@@ -460,7 +471,56 @@ test("preview aspect frame and custom font picker stay wired", () => {
   assert.match(cssSource, /#previewFrameBackdrop/);
   assert.match(cssSource, /white-space:nowrap/);
   assert.match(mainSource, /function resolveDrawtextFontFile\(fontFamily, fontWeight, fontFile = "", sampleText = ""\)/);
-  assert.match(mainSource, /resolveDrawtextFontFile\(overlay\.fontFamily, overlay\.fontWeight, overlay\.fontFile, overlay\.text\)/);
+  assert.match(mainSource, /resolveVerifiedRenderFont\(overlay/);
+});
+
+test("VideoSmith project files, preview resize, and compact timeline controls stay wired", () => {
+  const mainSource = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
+  const overlaySource = fs.readFileSync(path.join(repoRoot, "renderer", "overlay_engine.js"), "utf8");
+  const timelineSource = fs.readFileSync(path.join(repoRoot, "renderer", "timeline.js"), "utf8");
+  const cssSource = fs.readFileSync(path.join(repoRoot, "renderer", "styles.css"), "utf8");
+  const koSource = fs.readFileSync(path.join(repoRoot, "renderer", "i18n", "ko.js"), "utf8");
+  const enSource = fs.readFileSync(path.join(repoRoot, "renderer", "i18n", "en.js"), "utf8");
+
+  assert.match(mainSource, /const zlib = require\("zlib"\)/);
+  assert.match(mainSource, /VIDEOSMITH_PROJECT_EXT = "vsm"/);
+  assert.match(mainSource, /VIDEOSMITH_PROJECT_MAGIC = Buffer\.from\("VSM1\\n", "utf8"\)/);
+  assert.match(mainSource, /zlib\.gzipSync/);
+  assert.match(mainSource, /zlib\.gunzipSync/);
+  assert.match(mainSource, /extensions: \[VIDEOSMITH_PROJECT_EXT\]/);
+  assert.match(mainSource, /defaultPath,\s*[\r\n]\s*filters: \[\{ name: "VideoSmith Project"/);
+
+  assert.match(appSource, /function initPreviewResizeObserver/);
+  assert.match(appSource, /new ResizeObserver/);
+  assert.match(appSource, /function renderPreviewOverlays\(timeSec = state\.ui\.currentTime\)/);
+  assert.match(appSource, /initPreviewResizeObserver\(\);/);
+  assert.match(appSource, /프로젝트 파일을 불러오지 못했습니다/);
+  assert.match(appSource, /프로젝트 저장 완료/);
+
+  assert.match(overlaySource, /function updatePreviewTextElementLayout/);
+  assert.match(overlaySource, /Number\(overlay\.fontSize \|\| 64\) \* Number\(frame\.scale \|\| 1\)/);
+  assert.match(overlaySource, /updatePreviewTextElementLayout\(el, overlay, frame\)/);
+
+  assert.match(timelineSource, /const clipOptionsIcon = `/);
+  assert.match(timelineSource, /class="clipOptionsIcon"/);
+  assert.match(timelineSource, /dataset\.dropKind/);
+  assert.match(timelineSource, /--drop-preview-color/);
+  assert.doesNotMatch(timelineSource, /innerHTML = "<span><\/span><span><\/span><span><\/span>"/);
+  assert.match(appSource, /function createPaletteDragImage/);
+  assert.match(appSource, /setDragImage\(dragImage, 18, 18\)/);
+  assert.match(appSource, /kind: "background"[\s\S]*color: previewColor/);
+  assert.match(cssSource, /\.clipOptionsIcon/);
+  assert.match(cssSource, /--clip-option-bg/);
+  assert.match(cssSource, /\.dragPreviewGhost/);
+  assert.match(cssSource, /--drop-preview-border/);
+  assert.match(cssSource, /\.dropTargetHighlight\[data-drop-kind="background"\]::before/);
+  assert.match(cssSource, /\.previewOverlayHandle\[data-handle="n"\][\s\S]*width:18px/);
+  assert.match(cssSource, /\.previewOverlayHandle\[data-handle="e"\][\s\S]*height:18px/);
+  assert.match(koSource, /프로젝트 저장 \(Ctrl\+S\)/);
+  assert.match(koSource, /프로젝트 불러오기/);
+  assert.match(enSource, /Save Project \(Ctrl\+S\)/);
+  assert.match(enSource, /Load Project/);
 });
 
 test("korean drawtext subtitles prefer a Korean-capable font", () => {
@@ -469,18 +529,120 @@ test("korean drawtext subtitles prefer a Korean-capable font", () => {
   const effectSource = fs.readFileSync(path.join(repoRoot, "renderer", "effect_defs.js"), "utf8");
   const htmlSource = fs.readFileSync(path.join(repoRoot, "renderer", "index.html"), "utf8");
   assert.match(mainSource, /function hasKoreanText/);
-  assert.match(mainSource, /hasKoreanText\(sampleText\)/);
+  assert.match(mainSource, /getTextScriptProfile\(sampleText\)/);
   assert.match(mainSource, /function fontSupportsKoreanText/);
-  assert.match(mainSource, /fontSupportsKoreanText\(customPath, sampleText\) !== false/);
+  assert.match(mainSource, /function fontSupportsText/);
+  assert.match(mainSource, /fontSupportsText\(customPath, sampleText\) === true/);
   assert.match(mainSource, /AppleSDGothicNeo\.ttc/);
   assert.match(mainSource, /malgunbd\.ttf/);
-  assert.match(mainSource, /resolveDrawtextFontFile\(overlay\.fontFamily, overlay\.fontWeight, overlay\.fontFile, overlay\.text\)/);
+  assert.match(mainSource, /function resolveVerifiedRenderFont/);
   assert.match(appSource, /const BASE_FONT_FAMILIES = \["Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans CJK KR"/);
   assert.match(appSource, /fontFamily: String\(defaults\.fontFamily \|\| "Malgun Gothic"\)/);
   assert.match(appSource, /strokeWidth: Math\.max\(0, Number\(defaults\.strokeWidth \?\? 0\)\)/);
   assert.match(effectSource, /fontFamily: "Malgun Gothic"/);
   assert.match(effectSource, /strokeWidth: 0/);
   assert.match(htmlSource, /value="0" \/>[\s\S]*?<span id="overlayStrokeWidthValue" class="miniValue">0px<\/span>/);
+});
+
+test("render preflight, textfile drawtext, canvas text fallback, and preview shell tokens stay wired", () => {
+  const mainSource = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
+  const overlaySource = fs.readFileSync(path.join(repoRoot, "renderer", "overlay_engine.js"), "utf8");
+  const hostSource = fs.readFileSync(path.join(repoRoot, "renderer", "fx_render_host.js"), "utf8");
+  const renderWindowSource = fs.readFileSync(path.join(repoRoot, "renderer", "render_window.js"), "utf8");
+  const cssSource = fs.readFileSync(path.join(repoRoot, "renderer", "styles.css"), "utf8");
+
+  assert.match(mainSource, /const RENDER_PREFLIGHT_TIMEOUT_MS = 15000/);
+  assert.match(mainSource, /const RENDER_NO_PROGRESS_HARD_TIMEOUT_MS = 120000/);
+  assert.match(mainSource, /async function preflightRenderProject/);
+  assert.match(mainSource, /function sanitizeRenderProjectForFfmpeg/);
+  assert.match(mainSource, /function collectPreflightSampleTimes/);
+  assert.match(mainSource, /function getFfmpegCapabilities/);
+  assert.match(mainSource, /function testFfmpegDrawtextFont/);
+  assert.match(mainSource, /function writeDrawtextTextFile/);
+  assert.match(mainSource, /textfile='\$\{escapeFilterPath\(textFile\)\}'/);
+  assert.match(mainSource, /function renderCanvasTextOverlaySource/);
+  assert.match(mainSource, /renderTextSequenceToDir/);
+  assert.match(mainSource, /_dropWaveDisplaceFallback/);
+  assert.match(mainSource, /render_watchdog_timeout/);
+
+  assert.match(overlaySource, /function renderTextFrameToDataUrl/);
+  assert.match(hostSource, /async function renderTextSequenceToDir/);
+  assert.match(hostSource, /new FontFace/);
+  assert.match(renderWindowSource, /preflight_project: "프로젝트 검사 중"/);
+  assert.match(renderWindowSource, /preflight_canvas_text: "안전한 텍스트 렌더링으로 전환 중"/);
+  assert.match(renderWindowSource, /render_watchdog_timeout: "응답 없음 감지, 렌더 프로세스 중단"/);
+  assert.match(cssSource, /--preview-stage-bg:#f5f7fa/);
+  assert.match(cssSource, /--preview-monitor-bg:#0b0f14/);
+  assert.match(cssSource, /#panelRight\{[\s\S]*background:var\(--preview-shell-bg\)/);
+  assert.match(appSource, /renderHints/);
+  assert.match(appSource, /hasNonAsciiText/);
+});
+
+test("render sanitize and Korean font verification produce a safe render plan", () => {
+  const api = loadMainHarness();
+  assert.equal(api.containsNonAsciiText("안녕하세요"), true);
+  const profile = api.getTextScriptProfile("안녕하세요");
+  assert.equal(profile.hasHangul, true);
+  assert.equal(profile.hasNonAscii, true);
+
+  const target = { ...api.resToWH("FHD", "16:9"), fps: 30, resolutionName: "FHD", aspectRatio: "16:9" };
+  const sanitized = api.sanitizeRenderProjectForFfmpeg({
+    videoClips: [{
+      id: "color",
+      type: "color",
+      color: "#ffffff",
+      start: -1,
+      duration: 0,
+      timelineDuration: 0,
+      in: 0,
+      out: 0,
+      section: 1
+    }],
+    audioItems: [],
+    overlayItems: [{
+      id: "txt",
+      overlayType: "text",
+      text: "안녕하세요",
+      start: -3,
+      duration: 0,
+      opacity: 2,
+      strokeWidth: Number.NaN,
+      x: 2,
+      y: -1,
+      transitionInDurationSec: 2,
+      transitionOutDurationSec: 2
+    }]
+  }, target);
+
+  assert.equal(sanitized.fatalErrors.length, 0);
+  assert.ok(sanitized.warnings.some((warning) => warning.includes("duration_clamped")));
+  assert.equal(sanitized.project.videoClips[0].start, 0);
+  assert.ok(sanitized.project.videoClips[0].timelineDuration >= 0.01);
+  assert.equal(sanitized.project.overlayItems[0].start, 0);
+  assert.equal(sanitized.project.overlayItems[0].opacity, 1);
+  assert.equal(sanitized.project.overlayItems[0].strokeWidth, 0);
+  assert.equal(sanitized.project.overlayItems[0].x, 1);
+  assert.equal(sanitized.project.overlayItems[0].y, 0);
+  assert.ok(
+    sanitized.project.overlayItems[0].transitionInDurationSec
+      + sanitized.project.overlayItems[0].transitionOutDurationSec
+      <= sanitized.project.overlayItems[0].duration
+  );
+
+  const samples = api.collectPreflightSampleTimes(sanitized.project, target);
+  assert.ok(samples.length <= 12);
+  assert.ok(samples.some((sample) => /text:start/.test(sample.reason)));
+
+  const font = api.resolveVerifiedRenderFont({
+    id: "korean",
+    overlayType: "text",
+    text: "안녕하세요",
+    fontFamily: "Definitely Missing Sans",
+    fontFile: path.join(api.tempRoot, "missing.ttf")
+  });
+  assert.equal(font.profile.hasHangul, true);
+  assert.ok(font.canUseDrawtext ? !!font.fontFile : font.requiresCanvasFallback);
 });
 
 test("tiny combined render with background, chroma, subtitles, and drop-wave finalizes", { timeout: 45000 }, async () => {

@@ -3,7 +3,8 @@ const { nativeImage: electronNativeImage } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
-const { exec } = require("child_process");
+const zlib = require("zlib");
+const { exec, execFile } = require("child_process");
 const ffmpegPath = require("ffmpeg-static");
 const ffprobePath = require("ffprobe-static").path;
 let ffprobeInstallerPath = "";
@@ -27,6 +28,18 @@ const FAST_RENDER_EPSILON = TIMELINE_TIME_STEP_SEC;
 const FILTER_THREAD_CAP = 8;
 const OUTPUT_STAGE_PATH_THRESHOLD = 220;
 const FINALIZING_RENDER_PERCENT = 99.8;
+const VIDEOSMITH_PROJECT_EXT = "vsm";
+const VIDEOSMITH_PROJECT_MAGIC = Buffer.from("VSM1\n", "utf8");
+const RENDER_PREFLIGHT_TIMEOUT_MS = 15000;
+const CANVAS_PRERENDER_TIMEOUT_MS = 20000;
+const RENDER_NO_PROGRESS_WARNING_MS = 60000;
+const RENDER_NO_PROGRESS_HARD_TIMEOUT_MS = 120000;
+const DRAWTEXT_SELF_TEST_CACHE = new Map();
+const FFMPEG_CAPABILITY_CACHE = {
+  filters: null,
+  encoders: null,
+  promise: null
+};
 const FLUENT_FORMAT_FALLBACKS = Object.freeze({
   lavfi: { description: "Libavfilter virtual input device", canDemux: true, canMux: false },
   mp4: { description: "MP4 (MPEG-4 Part 14)", canDemux: true, canMux: true },
@@ -405,6 +418,7 @@ let activeRender = {
   timemark: "",
   durationSec: 0,
   message: "",
+  errorDetail: "",
   debugLogPath: "",
   outputPath: "",
   outputPaths: [],
@@ -509,6 +523,29 @@ function makeId() {
 
 function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+}
+
+function ensureVsmExtension(filePath) {
+  const rawPath = String(filePath || "");
+  if (!rawPath) return rawPath;
+  const ext = path.extname(rawPath).toLowerCase();
+  if (ext === `.${VIDEOSMITH_PROJECT_EXT}`) return rawPath;
+  return `${rawPath}.${VIDEOSMITH_PROJECT_EXT}`;
+}
+
+function encodeVideoSmithProjectFile(projectJson) {
+  const jsonText = String(projectJson || "");
+  const compressed = zlib.gzipSync(Buffer.from(jsonText, "utf8"));
+  return Buffer.concat([VIDEOSMITH_PROJECT_MAGIC, compressed]);
+}
+
+function decodeVideoSmithProjectFile(buffer) {
+  const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
+  if (buf.length <= VIDEOSMITH_PROJECT_MAGIC.length || !buf.subarray(0, VIDEOSMITH_PROJECT_MAGIC.length).equals(VIDEOSMITH_PROJECT_MAGIC)) {
+    throw new Error("Invalid VideoSmith project file.");
+  }
+  const compressed = buf.subarray(VIDEOSMITH_PROJECT_MAGIC.length);
+  return zlib.gunzipSync(compressed).toString("utf8");
 }
 
 function getRenderDebugDir() {
@@ -3046,7 +3083,22 @@ function hasKoreanText(value) {
   return /[\u3131-\u318E\uAC00-\uD7A3]/.test(String(value || ""));
 }
 
+function containsNonAsciiText(text) {
+  return /[^\x00-\x7F]/.test(String(text || ""));
+}
+
+function getTextScriptProfile(text) {
+  const value = String(text || "");
+  const hasHangul = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF]/.test(value);
+  const hasKana = /[\u3040-\u30FF\u31F0-\u31FF]/.test(value);
+  const hasCjk = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/.test(value);
+  const hasEmoji = /[\u2600-\u27BF]|\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDEFF]|\uD83E[\uDD00-\uDFFF]/.test(value);
+  const hasNonAscii = containsNonAsciiText(value);
+  return { hasHangul, hasKana, hasCjk, hasEmoji, hasNonAscii };
+}
+
 const DRAW_TEXT_FONT_EXT_RE = /\.(ttf|otf|ttc|woff2?)$/i;
+const DRAW_TEXT_SFNT_FONT_EXT_RE = /\.(ttf|otf|ttc)$/i;
 const FONT_LOOKUP_CACHE = new Map();
 const FONT_SUPPORT_CACHE = new Map();
 
@@ -3269,10 +3321,44 @@ function getKoreanCodePoints(value) {
   )];
 }
 
+function getRenderableTextCodePoints(value) {
+  return [...new Set(
+    [...String(value || "")]
+      .map((char) => char.codePointAt(0))
+      .filter((codePoint) => (
+        Number.isFinite(codePoint)
+        && codePoint > 0x20
+        && codePoint !== 0x7f
+        && !(codePoint >= 0xfe00 && codePoint <= 0xfe0f)
+        && !(codePoint >= 0xe0100 && codePoint <= 0xe01ef)
+      ))
+  )].slice(0, 96);
+}
+
+function fontSupportsText(fontPath, sampleText = "") {
+  const codePoints = getRenderableTextCodePoints(sampleText);
+  if (!codePoints.length) return true;
+  if (!DRAW_TEXT_SFNT_FONT_EXT_RE.test(String(fontPath || ""))) return null;
+  const cacheKey = `text:${fontPath}:${codePoints.join(",")}`;
+  if (FONT_SUPPORT_CACHE.has(cacheKey)) return FONT_SUPPORT_CACHE.get(cacheKey);
+  let result = null;
+  try {
+    const buffer = fs.readFileSync(fontPath);
+    const offsets = getSfntOffsets(buffer);
+    if (offsets.length) {
+      result = offsets.some((offset) => sfntSupportsCodePoints(buffer, offset, codePoints) === true);
+    }
+  } catch {
+    result = null;
+  }
+  FONT_SUPPORT_CACHE.set(cacheKey, result);
+  return result;
+}
+
 function fontSupportsKoreanText(fontPath, sampleText = "") {
   const codePoints = getKoreanCodePoints(sampleText);
   if (!codePoints.length) return true;
-  if (!/\.(ttf|otf|ttc)$/i.test(String(fontPath || ""))) return null;
+  if (!DRAW_TEXT_SFNT_FONT_EXT_RE.test(String(fontPath || ""))) return null;
   const cacheKey = `${fontPath}:${codePoints.join(",")}`;
   if (FONT_SUPPORT_CACHE.has(cacheKey)) return FONT_SUPPORT_CACHE.get(cacheKey);
   let result = null;
@@ -3290,10 +3376,12 @@ function fontSupportsKoreanText(fontPath, sampleText = "") {
 }
 
 function chooseExistingDrawtextFont(candidates, sampleText = "") {
-  const wantsKorean = hasKoreanText(sampleText);
+  const profile = getTextScriptProfile(sampleText);
+  const needsGlyphVerification = profile.hasNonAscii || String(sampleText || "").trim().length > 0;
   for (const filePath of candidates) {
     if (!isReadableFontFile(filePath)) continue;
-    if (wantsKorean && fontSupportsKoreanText(filePath, sampleText) === false) continue;
+    if (profile.hasHangul && fontSupportsKoreanText(filePath, sampleText) === false) continue;
+    if (needsGlyphVerification && profile.hasNonAscii && fontSupportsText(filePath, sampleText) !== true) continue;
     return filePath;
   }
   return "";
@@ -3301,11 +3389,13 @@ function chooseExistingDrawtextFont(candidates, sampleText = "") {
 
 function resolveDrawtextFontFile(fontFamily, fontWeight, fontFile = "", sampleText = "") {
   const customPath = String(fontFile || "").trim();
+  const profile = getTextScriptProfile(sampleText);
   try {
     if (
       customPath
       && isReadableFontFile(customPath)
-      && (!hasKoreanText(sampleText) || fontSupportsKoreanText(customPath, sampleText) !== false)
+      && (!profile.hasHangul || fontSupportsKoreanText(customPath, sampleText) !== false)
+      && (!profile.hasNonAscii || fontSupportsText(customPath, sampleText) === true)
     ) {
       return customPath;
     }
@@ -3323,8 +3413,9 @@ function resolveDrawtextFontFile(fontFamily, fontWeight, fontFile = "", sampleTe
   const addFamilyMatches = (name) => {
     findFontFilesByCompactName(name).forEach(add);
   };
-  const wantsKorean = hasKoreanText(sampleText)
+  const wantsKorean = profile.hasHangul
     || /korean|hangul|malgun|pretendard|apple\s*sd|noto\s*sans\s*cjk|nanum|gothic|고딕/i.test(family);
+  const wantsCjk = wantsKorean || profile.hasKana || profile.hasCjk;
 
   if (family.includes("pretendard")) addFamilyMatches("pretendard");
   if (family.includes("apple") || family.includes("sd gothic")) addFamilyMatches("AppleSDGothicNeo");
@@ -3347,7 +3438,7 @@ function resolveDrawtextFontFile(fontFamily, fontWeight, fontFile = "", sampleTe
     add(path.join(fontsDir, "segoeuib.ttf"));
     add(path.join(fontsDir, "segoeui.ttf"));
   } else if (process.platform === "darwin") {
-    if (wantsKorean) {
+    if (wantsCjk) {
       add("/System/Library/Fonts/AppleSDGothicNeo.ttc");
       add("/System/Library/Fonts/Supplemental/AppleGothic.ttf");
       add("/System/Library/Fonts/Supplemental/Arial Unicode.ttf");
@@ -3360,7 +3451,7 @@ function resolveDrawtextFontFile(fontFamily, fontWeight, fontFile = "", sampleTe
     add("/System/Library/Fonts/Supplemental/Arial.ttf");
     add("/System/Library/Fonts/Supplemental/Georgia.ttf");
   } else {
-    if (wantsKorean) {
+    if (wantsCjk) {
       addSystemFile("opentype/noto/NotoSansCJK-Bold.ttc");
       addSystemFile("opentype/noto/NotoSansCJK-Regular.ttc");
       addSystemFile("truetype/noto/NotoSansCJK-Bold.ttc");
@@ -3372,11 +3463,65 @@ function resolveDrawtextFontFile(fontFamily, fontWeight, fontFile = "", sampleTe
     }
     if (family.includes("georgia")) addFamilyMatches("Georgia");
     if (family.includes("arial")) addFamilyMatches("Arial");
-    addSystemFile("truetype/dejavu/DejaVuSans-Bold.ttf");
-    addSystemFile("truetype/dejavu/DejaVuSans.ttf");
+    if (!wantsCjk) {
+      addSystemFile("truetype/dejavu/DejaVuSans-Bold.ttf");
+      addSystemFile("truetype/dejavu/DejaVuSans.ttf");
+    }
   }
   if (compactFamily) addFamilyMatches(compactFamily);
   return chooseExistingDrawtextFont(candidates, sampleText);
+}
+
+function resolveVerifiedRenderFont(overlay = {}, debugSession = null) {
+  const sampleText = String(overlay.text ?? "");
+  const profile = getTextScriptProfile(sampleText);
+  const customPath = String(overlay.fontFile || "").trim();
+  const fontFile = resolveDrawtextFontFile(overlay.fontFamily, overlay.fontWeight, customPath, sampleText);
+  const result = {
+    fontFile,
+    profile,
+    usedFallback: !!(customPath && fontFile && path.normalize(customPath) !== path.normalize(fontFile)),
+    canUseDrawtext: true,
+    requiresCanvasFallback: false,
+    reason: ""
+  };
+
+  if (customPath) {
+    if (!isReadableFontFile(customPath)) {
+      result.reason = "custom_font_unreadable";
+    } else if (!DRAW_TEXT_SFNT_FONT_EXT_RE.test(customPath)) {
+      result.reason = "custom_font_not_drawtext_sfnt";
+    } else if (sampleText && fontSupportsText(customPath, sampleText) === false) {
+      result.reason = "custom_font_missing_glyphs";
+    }
+  }
+
+  if (profile.hasEmoji) {
+    result.canUseDrawtext = false;
+    result.requiresCanvasFallback = true;
+    result.reason = result.reason || "emoji_or_complex_glyph";
+  } else if (profile.hasNonAscii) {
+    const supports = fontFile ? fontSupportsText(fontFile, sampleText) : false;
+    if (!fontFile || supports !== true) {
+      result.canUseDrawtext = false;
+      result.requiresCanvasFallback = true;
+      result.reason = result.reason || (fontFile ? "font_glyph_support_unverified" : "verified_font_not_found");
+    }
+  }
+
+  if (result.usedFallback || !result.canUseDrawtext) {
+    debugSession?.write?.("Text font verification", [
+      `overlayId=${String(overlay.id || "")}`,
+      `fontFamily=${String(overlay.fontFamily || "")}`,
+      `customFont=${customPath}`,
+      `resolvedFont=${fontFile}`,
+      `canUseDrawtext=${result.canUseDrawtext}`,
+      `requiresCanvasFallback=${result.requiresCanvasFallback}`,
+      `reason=${result.reason || ""}`,
+      `profile=${JSON.stringify(profile)}`
+    ].join("\n"));
+  }
+  return result;
 }
 
 function buildOverlayXExpr(overlay, targetWidth) {
@@ -4171,6 +4316,7 @@ function buildDropWaveRemapChain(project, rangeStart, rangeEnd, inputLabel, targ
     .map((item) => normalizeOverlayItemForRender(item))
     .filter(Boolean)
     .filter((item) => item.overlayType === "drop_wave")
+    .filter((item) => !item._renderDisabled)
     .sort((a, b) => (
       Number(b.section || 1) - Number(a.section || 1)
       || Number(a.start || 0) - Number(b.start || 0)
@@ -4347,11 +4493,12 @@ function buildFxOverlayChain(project, rangeStart, rangeEnd, inputLabel, target) 
   return { parts, outputLabel: current };
 }
 
-function buildOverlayDrawtextChain(project, rangeStart, rangeEnd, inputLabel, target) {
+function buildOverlayDrawtextChain(project, rangeStart, rangeEnd, inputLabel, target, context = {}) {
   const overlayItems = (project.overlayItems || [])
     .map((item) => normalizeOverlayItemForRender(item))
     .filter(Boolean)
     .filter((item) => String(item.overlayType || "text") === "text")
+    .filter((item) => String(item._renderTextMode || "drawtext") !== "canvas")
     .filter((item) => {
       const start = Number(item.start || 0);
       const end = start + Math.max(MIN_OVERLAY_CLIP_SEC, Number(item.duration || MIN_OVERLAY_CLIP_SEC));
@@ -4385,8 +4532,24 @@ function buildOverlayDrawtextChain(project, rangeStart, rangeEnd, inputLabel, ta
     const base = `txtbase${idx}`;
     const drawn = `txtdraw${idx}`;
     const mixed = `vtxt${idx}`;
-    const fontFile = resolveDrawtextFontFile(overlay.fontFamily, overlay.fontWeight, overlay.fontFile, overlay.text);
+    const verification = overlay._renderFontFile
+      ? { fontFile: overlay._renderFontFile, canUseDrawtext: true }
+      : resolveVerifiedRenderFont(overlay, context.debugSession || null);
+    if (!verification.canUseDrawtext) {
+      context.debugSession?.write?.("Skipping drawtext overlay for canvas fallback", [
+        `overlayId=${String(overlay.id || "")}`,
+        `reason=${String(verification.reason || "")}`
+      ].join("\n"));
+      return;
+    }
+    const fontFile = verification.fontFile || "";
     const fontFileArg = fontFile ? `fontfile='${escapeFilterPath(fontFile)}':` : "";
+    const textFile = typeof context.writeTextFile === "function"
+      ? context.writeTextFile(overlay.text ?? "", overlay.id || `overlay_${idx}`)
+      : "";
+    const textArg = textFile
+      ? `textfile='${escapeFilterPath(textFile)}'`
+      : `text='${escapeDrawtextText(overlay.text ?? "")}'`;
     const fontColor = `0x${normalizeHexColor(overlay.color, "FFFFFF")}@${fmtGain(fontOpacity)}`;
     const strokeColor = `0x${normalizeHexColor(overlay.strokeColor, "000000")}@${fmtGain(strokeOpacity)}`;
     const yExpr = `${fmtNumber(h)}*${fmtNumber(Math.max(0, Math.min(1, Number(overlay.y ?? 0.82))))}`;
@@ -4394,7 +4557,7 @@ function buildOverlayDrawtextChain(project, rangeStart, rangeEnd, inputLabel, ta
       `color=c=black@0.0:s=${w}x${h}:r=${fps}:d=${fmtNumber(totalDuration)},format=rgba[${base}]`
     );
     parts.push(
-      `[${base}]drawtext=${fontFileArg}text='${escapeDrawtextText(overlay.text ?? "")}':fontsize=${Math.max(18, Math.round(Number(overlay.fontSize || 64)))}:fontcolor=${fontColor}:x='${buildOverlayXExpr(overlay, w)}':y='${yExpr}':borderw=${fmtNumber(overlay.noStroke ? 0 : Math.max(0, Number(overlay.strokeWidth || 0)))}:bordercolor=${strokeColor}:line_spacing=8:enable='between(t,${fmtNumber(start)},${fmtNumber(end)})'[${drawn}]`
+      `[${base}]drawtext=${fontFileArg}${textArg}:fontsize=${Math.max(18, Math.round(Number(overlay.fontSize || 64)))}:fontcolor=${fontColor}:x='${buildOverlayXExpr(overlay, w)}':y='${yExpr}':borderw=${fmtNumber(overlay.noStroke ? 0 : Math.max(0, Number(overlay.strokeWidth || 0)))}:bordercolor=${strokeColor}:line_spacing=8:enable='between(t,${fmtNumber(start)},${fmtNumber(end)})'[${drawn}]`
     );
     const transitioned = appendTextOverlayTransitionLabel(parts, drawn, `txtdraw${idx}`, {
       ...overlay,
@@ -4475,11 +4638,25 @@ function getFxRenderStageDir() {
   return path.join(getShortRuntimeWorkRoot(), "fx");
 }
 
+function getDrawtextStageDir() {
+  return path.join(getShortRuntimeWorkRoot(), "txt");
+}
+
 function writeComplexFilterScript(filterText) {
   const scriptDir = getFilterScriptDir();
   ensureDir(scriptDir);
   const filePath = path.join(scriptDir, `f_${randomUUID().slice(0, 6)}.txt`);
   fs.writeFileSync(filePath, String(filterText || ""), "utf8");
+  return filePath;
+}
+
+function writeDrawtextTextFile(text, sessionDir, id = "") {
+  ensureDir(sessionDir);
+  const safeId = String(id || randomUUID())
+    .replace(/[^a-z0-9_-]/gi, "_")
+    .slice(0, 80) || randomUUID().slice(0, 8);
+  const filePath = path.join(sessionDir, `txt_${safeId}_${randomUUID().slice(0, 6)}.txt`);
+  fs.writeFileSync(filePath, String(text || ""), "utf8");
   return filePath;
 }
 
@@ -4489,6 +4666,18 @@ function cleanupTempFile(filePath) {
   } catch {
     // ignore cleanup failures
   }
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timer = null;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => {
+      if (timer) clearTimeout(timer);
+    }),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message || "operation timed out")), Math.max(1, Number(timeoutMs || 1)));
+    })
+  ]);
 }
 
 function closeFxRenderHostWindow() {
@@ -4614,9 +4803,13 @@ async function renderCanvasFxOverlaySource(project, rangeStart, rangeEnd, target
     throwIfCancelled();
   }
   const escapedPayload = JSON.stringify(payload).replace(/`/g, "\\`");
-  const hostResult = await host.webContents.executeJavaScript(
-    `window.VideoSmithFxRenderHost.renderFxSequenceToDir(${escapedPayload})`,
-    true
+  const hostResult = await withTimeout(
+    host.webContents.executeJavaScript(
+      `window.VideoSmithFxRenderHost.renderFxSequenceToDir(${escapedPayload})`,
+      true
+    ),
+    CANVAS_PRERENDER_TIMEOUT_MS,
+    "Canvas FX prerender timed out."
   );
   if (isCancelled()) {
     cleanupSession();
@@ -4653,6 +4846,126 @@ async function renderCanvasFxOverlaySource(project, rangeStart, rangeEnd, target
     throwIfCancelled();
   }
   debugSession?.write?.("Canvas FX source ready", outputPath);
+  return {
+    inputPath: outputPath,
+    cleanup: cleanupSession
+  };
+}
+
+function getRenderableCanvasTextOverlays(project, rangeStart, rangeEnd, debugSession = null) {
+  return (project?.overlayItems || [])
+    .map((item) => normalizeOverlayItemForRender(item))
+    .filter(Boolean)
+    .filter((item) => String(item.overlayType || "text") === "text")
+    .filter((item) => {
+      if (String(item._renderTextMode || "") === "canvas") return true;
+      return resolveVerifiedRenderFont(item, debugSession).requiresCanvasFallback;
+    })
+    .filter((item) => {
+      const start = Number(item.start || 0);
+      const end = start + Math.max(MIN_OVERLAY_CLIP_SEC, Number(item.duration || MIN_OVERLAY_CLIP_SEC));
+      return end > rangeStart + 1e-6 && start < rangeEnd - 1e-6;
+    })
+    .sort((a, b) => (
+      Number(b.section || 1) - Number(a.section || 1)
+      || Number(a.start || 0) - Number(b.start || 0)
+      || String(a.id || "").localeCompare(String(b.id || ""))
+    ));
+}
+
+async function renderCanvasTextOverlaySource(project, rangeStart, rangeEnd, target, debugSession = null, renderHooks = {}) {
+  const isCancelled = typeof renderHooks.isCancelled === "function" ? renderHooks.isCancelled : () => false;
+  const throwIfCancelled = typeof renderHooks.throwIfCancelled === "function"
+    ? renderHooks.throwIfCancelled
+    : () => {
+        if (isCancelled()) throw createRenderCancelError();
+      };
+  const overlays = getRenderableCanvasTextOverlays(project, rangeStart, rangeEnd, debugSession);
+  if (!overlays.length) return null;
+  throwIfCancelled();
+  const fps = Math.max(1, Number(target?.fps || 30));
+  const durationSec = Math.max(1 / fps, Number(rangeEnd || 0) - Number(rangeStart || 0));
+  const rootDir = getDrawtextStageDir();
+  ensureDir(rootDir);
+  const sessionDir = path.join(rootDir, `canvas_${randomUUID().slice(0, 6)}`);
+  const framesDir = path.join(sessionDir, "frames");
+  ensureDir(framesDir);
+  const outputPath = path.join(sessionDir, "text_overlay.mov");
+  const cleanupSession = () => {
+    try {
+      if (fs.existsSync(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true });
+    } catch {
+      // ignore text cleanup failures
+    }
+  };
+  const payload = {
+    framesDir,
+    overlays,
+    width: Math.max(2, Number(target?.w || 1920)),
+    height: Math.max(2, Number(target?.h || 1080)),
+    resolutionName: target?.resolutionName || "FHD",
+    aspectRatio: target?.aspectRatio || "16:9",
+    fps,
+    startTime: Number(rangeStart || 0),
+    durationSec
+  };
+  debugSession?.write?.("Canvas text prerender", [
+    `count=${overlays.length}`,
+    `durationSec=${durationSec}`,
+    `fps=${fps}`,
+    `outputPath=${outputPath}`,
+    `overlays=${overlays.map((overlay) => String(overlay.id || "")).join(",")}`
+  ].join("\n"));
+  renderHooks.onStage?.("preflight_canvas_text", { count: overlays.length });
+  const host = await getFxRenderHostWindow();
+  if (isCancelled()) {
+    cleanupSession();
+    throwIfCancelled();
+  }
+  const escapedPayload = JSON.stringify(payload).replace(/`/g, "\\`");
+  const hostResult = await withTimeout(
+    host.webContents.executeJavaScript(
+      `window.VideoSmithFxRenderHost.renderTextSequenceToDir(${escapedPayload})`,
+      true
+    ),
+    CANVAS_PRERENDER_TIMEOUT_MS,
+    "Canvas text prerender timed out."
+  );
+  if (isCancelled()) {
+    cleanupSession();
+    throwIfCancelled();
+  }
+  debugSession?.write?.("Canvas text frames ready", JSON.stringify(hostResult || {}));
+  try {
+    await withTimeout(new Promise((resolve, reject) => {
+      let cmd = ffmpeg()
+        .input(path.join(framesDir, "txt_%06d.png"))
+        .inputOptions([`-framerate ${fps}`])
+        .outputOptions([
+          "-y",
+          `-t ${fmtNumber(durationSec)}`,
+          "-c:v qtrle",
+          "-pix_fmt argb"
+        ]);
+      cmd = cmd
+        .on("start", (line) => renderHooks.onStart?.(`[canvas-text] ${line}`, cmd))
+        .on("error", (err) => {
+          if (isCancelled()) reject(createRenderCancelError("render cancelled"));
+          else reject(err);
+        })
+        .on("end", resolve);
+      throwIfCancelled();
+      cmd.save(outputPath);
+    }), CANVAS_PRERENDER_TIMEOUT_MS, "Canvas text source encode timed out.");
+  } catch (err) {
+    cleanupSession();
+    throw err;
+  }
+  if (isCancelled()) {
+    cleanupSession();
+    throwIfCancelled();
+  }
+  debugSession?.write?.("Canvas text source ready", outputPath);
   return {
     inputPath: outputPath,
     cleanup: cleanupSession
@@ -4841,6 +5154,479 @@ function createSilentGapAudioClip(outPath, durationSec) {
       .on("end", resolve)
       .save(outPath);
   });
+}
+
+function execFileWithTimeout(filePath, args = [], timeoutMs = 10000, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      filePath,
+      args,
+      {
+        timeout: Math.max(1, Number(timeoutMs || 1)),
+        maxBuffer: 8 * 1024 * 1024,
+        windowsHide: true,
+        ...options
+      },
+      (err, stdout, stderr) => {
+        if (err) {
+          err.stdout = stdout;
+          err.stderr = stderr;
+          reject(err);
+          return;
+        }
+        resolve({ stdout: String(stdout || ""), stderr: String(stderr || "") });
+      }
+    );
+  });
+}
+
+function parseFfmpegFilterList(output = "") {
+  const filters = new Set();
+  String(output || "").split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^\s*[TSCAVN\.|]{2,}\s+([a-z0-9_]+)\s+/i);
+    if (match?.[1]) filters.add(match[1]);
+  });
+  return filters;
+}
+
+function parseFfmpegEncoderList(output = "") {
+  const encoders = new Set();
+  String(output || "").split(/\r?\n/).forEach((line) => {
+    const match = line.match(/^\s*[VAS\.]{1}[A-Z\.]{5}\s+([a-z0-9_]+)\s+/i);
+    if (match?.[1]) encoders.add(match[1]);
+  });
+  return encoders;
+}
+
+async function getFfmpegCapabilities(debugSession = null) {
+  ensureRuntimeBinaryPaths();
+  if (FFMPEG_CAPABILITY_CACHE.filters && FFMPEG_CAPABILITY_CACHE.encoders) {
+    return {
+      filters: FFMPEG_CAPABILITY_CACHE.filters,
+      encoders: FFMPEG_CAPABILITY_CACHE.encoders
+    };
+  }
+  if (!FFMPEG_CAPABILITY_CACHE.promise) {
+    FFMPEG_CAPABILITY_CACHE.promise = (async () => {
+      const [filtersResult, encodersResult] = await Promise.all([
+        execFileWithTimeout(runtimeFfmpegPath, ["-hide_banner", "-filters"], 8000),
+        execFileWithTimeout(runtimeFfmpegPath, ["-hide_banner", "-encoders"], 8000)
+      ]);
+      const filters = parseFfmpegFilterList(`${filtersResult.stdout}\n${filtersResult.stderr}`);
+      const encoders = parseFfmpegEncoderList(`${encodersResult.stdout}\n${encodersResult.stderr}`);
+      FFMPEG_CAPABILITY_CACHE.filters = filters;
+      FFMPEG_CAPABILITY_CACHE.encoders = encoders;
+      debugSession?.write?.("FFmpeg capability cache", [
+        `ffmpegPath=${runtimeFfmpegPath}`,
+        `filterCount=${filters.size}`,
+        `encoderCount=${encoders.size}`
+      ].join("\n"));
+      return { filters, encoders };
+    })().finally(() => {
+      FFMPEG_CAPABILITY_CACHE.promise = null;
+    });
+  }
+  return FFMPEG_CAPABILITY_CACHE.promise;
+}
+
+function projectUsesDropWave(project = {}) {
+  return (project.overlayItems || []).some((item) => String(item?.overlayType || "") === "drop_wave" && !item?._renderDisabled);
+}
+
+function projectUsesCanvasFx(project = {}) {
+  return (project.overlayItems || []).some((item) => CANVAS_FX_OVERLAY_TYPES.has(String(item?.overlayType || "")));
+}
+
+function projectUsesText(project = {}) {
+  return (project.overlayItems || []).some((item) => String(item?.overlayType || "text") === "text" && String(item?.text || "").trim());
+}
+
+function sanitizeMediaClipForRender(clip = {}, warnings = []) {
+  const next = { ...clip };
+  const id = String(next.id || "clip");
+  next.start = Math.max(0, finiteNumber(next.start, 0));
+  const sourceDuration = finiteNumber(next.timelineDuration ?? next.duration ?? next.meta?.duration ?? 0, 0);
+  const safeDuration = Math.max(TIMELINE_TIME_STEP_SEC, sourceDuration);
+  if (sourceDuration <= 0 || !Number.isFinite(sourceDuration)) {
+    warnings.push(`clip_duration_clamped:${id}`);
+  }
+  next.timelineDuration = safeDuration;
+  next.duration = Math.max(TIMELINE_TIME_STEP_SEC, finiteNumber(next.duration, safeDuration));
+  next.in = Math.max(0, finiteNumber(next.in, 0));
+  next.out = Math.max(next.in + TIMELINE_TIME_STEP_SEC, finiteNumber(next.out, next.in + safeDuration));
+  next.manualFadeInSec = Math.max(0, Math.min(finiteNumber(next.manualFadeInSec ?? next.fadeInSec, 0), safeDuration));
+  next.manualFadeOutSec = Math.max(0, Math.min(finiteNumber(next.manualFadeOutSec ?? next.fadeOutSec, 0), safeDuration));
+  next.opacity = clampFinite(next.opacity ?? 1, 0, 1, 1);
+  next.section = Math.max(1, Math.round(finiteNumber(next.section, 1)));
+  return next;
+}
+
+function sanitizeAudioItemForRender(audio = {}, warnings = []) {
+  const next = { ...audio };
+  const id = String(next.id || "audio");
+  const rawDuration = finiteNumber(next.duration, 0);
+  next.start = Math.max(0, finiteNumber(next.start, 0));
+  next.duration = Math.max(MIN_AUDIO_CLIP_SEC, rawDuration);
+  if (rawDuration <= 0 || !Number.isFinite(rawDuration)) warnings.push(`audio_duration_clamped:${id}`);
+  next.gain = clampFinite(next.gain ?? 1, 0, 1, 1);
+  next.manualFadeInSec = Math.max(0, Math.min(finiteNumber(next.manualFadeInSec ?? next.fadeInSec, 0), next.duration));
+  next.manualFadeOutSec = Math.max(0, Math.min(finiteNumber(next.manualFadeOutSec ?? next.fadeOutSec, 0), next.duration));
+  return next;
+}
+
+function sanitizeOverlayForRender(overlay = {}, warnings = []) {
+  const next = { ...overlay };
+  const id = String(next.id || "overlay");
+  const overlayType = String(next.overlayType || "text");
+  const rawDuration = finiteNumber(next.duration, overlayType === "text" ? 2 : MIN_OVERLAY_CLIP_SEC);
+  next.overlayType = overlayType;
+  next.start = Math.max(0, finiteNumber(next.start, 0));
+  next.duration = Math.max(MIN_OVERLAY_CLIP_SEC, rawDuration);
+  if (rawDuration <= 0 || !Number.isFinite(rawDuration)) warnings.push(`overlay_duration_clamped:${id}`);
+  next.opacity = clampFinite(next.opacity ?? 1, 0, 1, 1);
+  next.strokeWidth = Math.max(0, Math.min(96, finiteNumber(next.strokeWidth, 0)));
+  next.blur = Math.max(0, Math.min(160, finiteNumber(next.blur, 0)));
+  next.radius = Math.max(0, Math.min(1, finiteNumber(next.radius, next.radius == null ? 0.1 : next.radius)));
+  next.x = clampFinite(next.x ?? 0.5, 0, 1, 0.5);
+  next.y = clampFinite(next.y ?? (overlayType === "text" ? 0.82 : 0.5), 0, 1, overlayType === "text" ? 0.82 : 0.5);
+  next.boxWidth = clampFinite(next.boxWidth ?? 0.26, 0.08, 1, 0.26);
+  next.boxHeight = clampFinite(next.boxHeight ?? 0.18, 0.05, 1, 0.18);
+  next.fontSize = Math.max(8, Math.min(420, finiteNumber(next.fontSize, 64)));
+  next.manualFadeInSec = Math.max(0, Math.min(finiteNumber(next.manualFadeInSec, 0), next.duration));
+  next.manualFadeOutSec = Math.max(0, Math.min(finiteNumber(next.manualFadeOutSec, 0), next.duration));
+  next.transitionInDurationSec = Math.max(0, Math.min(finiteNumber(next.transitionInDurationSec, 0), next.duration));
+  next.transitionOutDurationSec = Math.max(0, Math.min(finiteNumber(next.transitionOutDurationSec, 0), next.duration));
+  if ((next.transitionInDurationSec + next.transitionOutDurationSec) > next.duration - MIN_OVERLAY_CLIP_SEC) {
+    const budget = Math.max(0, next.duration - MIN_OVERLAY_CLIP_SEC);
+    const total = Math.max(1e-6, next.transitionInDurationSec + next.transitionOutDurationSec);
+    next.transitionInDurationSec = (next.transitionInDurationSec / total) * budget;
+    next.transitionOutDurationSec = (next.transitionOutDurationSec / total) * budget;
+    warnings.push(`overlay_transition_clamped:${id}`);
+  }
+  next._renderSafeLabel = String(id).replace(/[^a-z0-9_]/gi, "_").slice(0, 64) || "overlay";
+  return next;
+}
+
+function sanitizeRenderProjectForFfmpeg(project = {}, target = {}, debugSession = null) {
+  const warnings = [];
+  const fatalErrors = [];
+  const next = cloneRenderPayload(project || {});
+  next.videoClips = (next.videoClips || []).map((clip) => sanitizeMediaClipForRender(clip, warnings));
+  next.audioItems = (next.audioItems || []).map((audio) => sanitizeAudioItemForRender(audio, warnings));
+  next.overlayItems = (next.overlayItems || []).map((overlay) => sanitizeOverlayForRender(overlay, warnings));
+  next.videoClips.forEach((clip) => {
+    const sourcePath = getRenderableClipSourcePath(clip);
+    const generated = clip?.type === "color" || clip?.isGeneratedBackground || clip?.backgroundColor || clip?.color;
+    if (!sourcePath && generated) return;
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+      fatalErrors.push(`미디어 파일을 찾을 수 없습니다: ${String(clip?.name || clip?.id || sourcePath || "video clip")}`);
+    }
+  });
+  next.audioItems.forEach((audio) => {
+    const sourcePath = getAudioItemSourcePath(audio);
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+      fatalErrors.push(`오디오 파일을 찾을 수 없습니다: ${String(audio?.name || audio?.id || sourcePath || "audio clip")}`);
+    }
+  });
+  const { w, h } = target || {};
+  debugSession?.write?.("Render project sanitize", [
+    `target=${Number(w || 0)}x${Number(h || 0)}@${Number(target?.fps || 0)}`,
+    `warnings=${warnings.join(",") || "none"}`,
+    `fatalErrors=${fatalErrors.join(" | ") || "none"}`
+  ].join("\n"));
+  return { project: next, warnings, fatalErrors };
+}
+
+function collectPreflightSampleTimes(project = {}, target = {}) {
+  const audioEnd = Math.max(0, ...(project.audioItems || []).map((a) => Number(a.start || 0) + Number(a.duration || 0)));
+  const videoEnd = Math.max(0, ...(project.videoClips || []).map((clip) => Number(clip.start || 0) + getVideoClipTimelineDuration(clip)));
+  const overlayEnd = Math.max(0, ...(project.overlayItems || []).map((item) => Number(item.start || 0) + Number(item.duration || 0)));
+  const projectEnd = Math.max(MIN_OVERLAY_CLIP_SEC, audioEnd, videoEnd, overlayEnd);
+  const candidates = [
+    { time: 0, priority: 20, reason: "start" },
+    { time: projectEnd / 2, priority: 18, reason: "middle" }
+  ];
+  (project.overlayItems || []).forEach((item) => {
+    const start = Math.max(0, Number(item.start || 0));
+    const duration = Math.max(MIN_OVERLAY_CLIP_SEC, Number(item.duration || MIN_OVERLAY_CLIP_SEC));
+    const type = String(item.overlayType || "text");
+    let priority = type === "text" ? 40 : 24;
+    if (type === "text" && containsNonAsciiText(item.text)) priority += 20;
+    if (type === "text" && item.fontFile) priority += 12;
+    if (type === "drop_wave" || CANVAS_FX_OVERLAY_TYPES.has(type)) priority += 10;
+    candidates.push({ time: start + Math.min(0.1, duration / 2), priority, reason: `${type}:start` });
+    candidates.push({ time: start + (duration / 2), priority: priority - 2, reason: `${type}:middle` });
+  });
+  Object.values(project.transitions || {}).forEach((transition) => {
+    if (!transition) return;
+    const start = Math.max(0, Number(transition.start || transition.at || 0));
+    const duration = Math.max(MIN_OVERLAY_CLIP_SEC, Number(transition.duration || transition.durationSec || 0.35));
+    candidates.push({ time: start + (duration / 2), priority: 28, reason: "transition:middle" });
+  });
+  const fps = Math.max(1, Number(target?.fps || 30));
+  const seen = new Set();
+  return candidates
+    .map((entry) => ({
+      ...entry,
+      time: Math.max(0, Math.min(projectEnd, Math.round(Number(entry.time || 0) * fps) / fps))
+    }))
+    .sort((a, b) => b.priority - a.priority || a.time - b.time)
+    .filter((entry) => {
+      const key = entry.time.toFixed(3);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 12);
+}
+
+async function testFfmpegDrawtextFont({ fontFile = "", sampleText = "", debugSession = null } = {}) {
+  ensureRuntimeBinaryPaths();
+  const profile = getTextScriptProfile(sampleText);
+  const profileKey = Object.entries(profile).filter(([, value]) => value).map(([key]) => key).join("+") || "ascii";
+  const cacheKey = `${runtimeFfmpegPath}:${fontFile || "fontconfig"}:${profileKey}`;
+  if (DRAWTEXT_SELF_TEST_CACHE.has(cacheKey)) return DRAWTEXT_SELF_TEST_CACHE.get(cacheKey);
+  const sessionDir = path.join(getDrawtextStageDir(), `self_${randomUUID().slice(0, 6)}`);
+  let textFile = "";
+  try {
+    textFile = writeDrawtextTextFile(sampleText || "VideoSmith", sessionDir, "selftest");
+    const fontArg = fontFile ? `fontfile='${escapeFilterPath(fontFile)}':` : "";
+    const vf = `drawtext=${fontArg}textfile='${escapeFilterPath(textFile)}':fontsize=32:fontcolor=white:x=10:y=80`;
+    await execFileWithTimeout(runtimeFfmpegPath, [
+      "-hide_banner",
+      "-f", "lavfi",
+      "-i", "color=c=black:s=320x180:d=0.1",
+      "-vf", vf,
+      "-frames:v", "1",
+      "-f", "null",
+      "-"
+    ], 7000);
+    const ok = { ok: true };
+    DRAWTEXT_SELF_TEST_CACHE.set(cacheKey, ok);
+    return ok;
+  } catch (err) {
+    const result = {
+      ok: false,
+      error: String(err?.stderr || err?.message || err || "drawtext self-test failed")
+    };
+    debugSession?.write?.("FFmpeg drawtext self-test failed", [
+      `fontFile=${fontFile}`,
+      `profile=${profileKey}`,
+      `error=${result.error}`
+    ].join("\n"));
+    DRAWTEXT_SELF_TEST_CACHE.set(cacheKey, result);
+    return result;
+  } finally {
+    try {
+      if (fs.existsSync(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true });
+    } catch {
+      // ignore self-test cleanup failures
+    }
+  }
+}
+
+async function runPreflightBasicFrameTest(debugSession = null) {
+  ensureRuntimeBinaryPaths();
+  try {
+    await execFileWithTimeout(runtimeFfmpegPath, [
+      "-hide_banner",
+      "-f", "lavfi",
+      "-i", "color=c=black:s=320x180:r=15:d=0.1",
+      "-vf", "format=rgba,fps=15,scale=320:180",
+      "-frames:v", "1",
+      "-f", "null",
+      "-"
+    ], 5000);
+    return { ok: true };
+  } catch (err) {
+    const error = String(err?.stderr || err?.message || err || "preflight frame test failed");
+    debugSession?.write?.("Preflight 1-frame test failed", error);
+    return { ok: false, error };
+  }
+}
+
+async function preflightRenderProject(payload, token = null, debugSession = null, hooks = {}) {
+  const throwIfCancelled = () => {
+    if (token?.cancelled) throw createRenderCancelError(token.reason || "render cancelled");
+  };
+  const emitStage = (message, extra = {}) => {
+    hooks.onStage?.(message, extra);
+    debugSession?.write?.("Preflight stage", `${message}${Object.keys(extra || {}).length ? ` ${JSON.stringify(extra)}` : ""}`);
+  };
+
+  const run = async () => {
+    throwIfCancelled();
+    emitStage("preflight_project");
+    const settings = {
+      fps: 30,
+      resolutionName: "FHD",
+      aspectRatio: "16:9",
+      renderMode: "video",
+      ...(payload?.settings || {})
+    };
+    const { w, h } = resToWH(settings.resolutionName, settings.aspectRatio || "16:9");
+    const target = {
+      w,
+      h,
+      fps: Math.max(1, Number(settings.fps || 30)),
+      resolutionName: settings.resolutionName,
+      aspectRatio: settings.aspectRatio || "16:9"
+    };
+    const sanitized = sanitizeRenderProjectForFfmpeg(payload?.project || {}, target, debugSession);
+    const nextPayload = {
+      ...payload,
+      project: sanitized.project,
+      settings: { ...settings }
+    };
+    const warnings = [...sanitized.warnings];
+    const fatalErrors = [...sanitized.fatalErrors];
+    const samples = collectPreflightSampleTimes(nextPayload.project, target);
+    debugSession?.write?.("Preflight sample plan", samples.map((sample) => `${fmtNumber(sample.time)} ${sample.reason}`).join("\n") || "none");
+    if (fatalErrors.length) {
+      return { ok: false, payload: nextPayload, warnings, error: fatalErrors.join("\n") };
+    }
+
+    throwIfCancelled();
+    emitStage("preflight_effects");
+    let capabilities = null;
+    try {
+      capabilities = await getFfmpegCapabilities(debugSession);
+    } catch (err) {
+      return {
+        ok: false,
+        payload: nextPayload,
+        warnings,
+        error: `FFmpeg 실행 환경을 확인하지 못했습니다: ${String(err?.message || err)}`
+      };
+    }
+    const filters = capabilities.filters || new Set();
+    const encoders = capabilities.encoders || new Set();
+    const requiredFilters = ["overlay", "format", "fps", "scale", "trim", "setpts", "atrim", "asetpts", "concat", "color", "nullsrc"];
+    const missingRequired = requiredFilters.filter((name) => !filters.has(name));
+    if (missingRequired.length) {
+      return {
+        ok: false,
+        payload: nextPayload,
+        warnings,
+        error: `FFmpeg 필수 필터를 사용할 수 없습니다: ${missingRequired.join(", ")}`
+      };
+    }
+    if (projectHasComplexTransitions(nextPayload.project) && !filters.has("xfade")) {
+      warnings.push("xfade filter missing; transition fallback may be simplified");
+      debugSession?.write?.("Preflight warning", "xfade filter missing");
+    }
+    if (projectUsesCanvasFx(nextPayload.project) && !encoders.has("qtrle")) {
+      fatalErrors.push("캔버스 효과 합성에 필요한 qtrle 인코더를 사용할 수 없습니다.");
+    }
+    if (projectUsesDropWave(nextPayload.project)) {
+      if (!filters.has("remap") && filters.has("displace")) {
+        nextPayload.settings._dropWaveDisplaceFallback = true;
+        warnings.push("특수효과 필터 remap을 사용할 수 없어 displace fallback을 적용합니다.");
+        debugSession?.write?.("Preflight warning", "drop_wave remap missing; displace fallback enabled");
+      } else if (!filters.has("remap") && !filters.has("displace")) {
+        nextPayload.project.overlayItems = (nextPayload.project.overlayItems || []).map((item) => (
+          String(item?.overlayType || "") === "drop_wave"
+            ? { ...item, _renderDisabled: true, _renderDisabledReason: "missing_remap_displace" }
+            : item
+        ));
+        warnings.push("drop_wave 필터를 지원하지 않아 해당 특수효과를 비활성화했습니다.");
+        debugSession?.write?.("Preflight warning", "drop_wave disabled: remap/displace missing");
+      }
+    }
+    if (fatalErrors.length) {
+      return { ok: false, payload: nextPayload, warnings, error: fatalErrors.join("\n") };
+    }
+
+    throwIfCancelled();
+    emitStage("preflight_fonts");
+    const drawtextAvailable = filters.has("drawtext");
+    const textOverlays = (nextPayload.project.overlayItems || [])
+      .filter((item) => String(item?.overlayType || "text") === "text" && String(item?.text || "").trim());
+    nextPayload.project.overlayItems = (nextPayload.project.overlayItems || []).map((item) => {
+      if (String(item?.overlayType || "text") !== "text" || !String(item?.text || "").trim()) return item;
+      const verification = resolveVerifiedRenderFont(item, debugSession);
+      if (!drawtextAvailable || verification.requiresCanvasFallback || !verification.canUseDrawtext) {
+        return {
+          ...item,
+          _renderTextMode: "canvas",
+          _renderFontFile: verification.fontFile || "",
+          _renderTextReason: drawtextAvailable ? verification.reason : "drawtext_filter_missing"
+        };
+      }
+      return {
+        ...item,
+        _renderTextMode: "drawtext",
+        _renderFontFile: verification.fontFile || "",
+        _renderTextReason: verification.usedFallback ? "verified_font_fallback" : ""
+      };
+    });
+    if (!drawtextAvailable && textOverlays.length) {
+      warnings.push("FFmpeg drawtext 필터가 없어 안전한 텍스트 렌더링으로 전환합니다.");
+      emitStage("preflight_canvas_text", { reason: "drawtext_filter_missing" });
+    }
+    const needsCanvasText = (nextPayload.project.overlayItems || []).some((item) => String(item?._renderTextMode || "") === "canvas");
+    if (needsCanvasText && !encoders.has("qtrle")) {
+      return {
+        ok: false,
+        payload: nextPayload,
+        warnings,
+        error: "안전한 텍스트 렌더링에 필요한 qtrle 인코더를 사용할 수 없습니다."
+      };
+    }
+
+    throwIfCancelled();
+    emitStage("preflight_drawtext");
+    const drawtextCandidates = (nextPayload.project.overlayItems || [])
+      .filter((item) => String(item?._renderTextMode || "") === "drawtext")
+      .filter((item) => containsNonAsciiText(item.text) || item.fontFile || item._renderFontFile)
+      .slice(0, 2);
+    for (const overlay of drawtextCandidates) {
+      throwIfCancelled();
+      const selfTest = await testFfmpegDrawtextFont({
+        fontFile: overlay._renderFontFile || overlay.fontFile || "",
+        sampleText: overlay.text,
+        debugSession
+      });
+      if (!selfTest.ok) {
+        nextPayload.project.overlayItems = (nextPayload.project.overlayItems || []).map((item) => (
+          item?.id === overlay.id
+            ? {
+                ...item,
+                _renderTextMode: "canvas",
+                _renderTextReason: "drawtext_self_test_failed"
+              }
+            : item
+        ));
+        warnings.push("선택한 글꼴을 FFmpeg가 직접 처리하지 못해 안전한 텍스트 렌더링 방식으로 전환합니다.");
+        emitStage("preflight_canvas_text", { overlayId: overlay.id || "" });
+      }
+    }
+
+    throwIfCancelled();
+    emitStage("preflight_frame");
+    const frameTest = await runPreflightBasicFrameTest(debugSession);
+    if (!frameTest.ok) {
+      return {
+        ok: false,
+        payload: nextPayload,
+        warnings,
+        error: `1프레임 렌더 검사에 실패했습니다: ${frameTest.error}`
+      };
+    }
+    emitStage("actual_render_start", { warnings: warnings.length });
+    return { ok: true, payload: nextPayload, warnings, samples };
+  };
+
+  try {
+    return await withTimeout(run(), RENDER_PREFLIGHT_TIMEOUT_MS, "preflight timed out");
+  } catch (err) {
+    if (isRenderCancelledError(err)) throw err;
+    const message = /preflight timed out/i.test(String(err?.message || ""))
+      ? "렌더링 사전 검사가 시간 초과되었습니다. 실제 렌더링을 시작하지 않았습니다."
+      : String(err?.message || err || "preflight failed");
+    debugSession?.write?.("Preflight failed", message);
+    return { ok: false, payload, warnings: [], error: message };
+  }
 }
 
 async function renderProject({ project, settings, region, outputPath }, hooks = {}) {
@@ -5072,11 +5858,47 @@ async function renderProject({ project, settings, region, outputPath }, hooks = 
         built.map = { ...built.map, v: dropWaveChain.outputLabel };
       }
       // Order stays aligned with preview:
-      // clip composition -> zoom focus -> drop-wave distortion -> drawtext -> other FX.
-      const drawtext = buildOverlayDrawtextChain(graphProject, rangeStart, rangeEnd, built.map.v, renderTarget);
+      // clip composition -> zoom focus -> drop-wave distortion -> drawtext/canvas text -> other FX.
+      const drawtextSessionDir = path.join(getDrawtextStageDir(), `draw_${randomUUID().slice(0, 6)}`);
+      let drawtextTextFilesUsed = false;
+      const drawtext = buildOverlayDrawtextChain(graphProject, rangeStart, rangeEnd, built.map.v, renderTarget, {
+        debugSession,
+        writeTextFile: (text, id) => {
+          drawtextTextFilesUsed = true;
+          return writeDrawtextTextFile(text, drawtextSessionDir, id);
+        }
+      });
+      if (drawtextTextFilesUsed) {
+        tempArtifactCleanupFns.push(() => {
+          try {
+            if (fs.existsSync(drawtextSessionDir)) fs.rmSync(drawtextSessionDir, { recursive: true, force: true });
+          } catch {
+            // ignore drawtext temp cleanup failures
+          }
+        });
+      }
       if (drawtext.parts.length) {
         built.filter = `${built.filter};${drawtext.parts.join(";")}`;
         built.map = { ...built.map, v: drawtext.outputLabel };
+      }
+      throwIfCancelled();
+      const prerenderedText = await renderCanvasTextOverlaySource(graphProject, rangeStart, rangeEnd, renderTarget, debugSession, hooks);
+      if (isCancelled()) {
+        try {
+          prerenderedText?.cleanup?.();
+        } catch {
+          // ignore cancellation cleanup failures
+        }
+        throwIfCancelled();
+      }
+      if (prerenderedText?.inputPath) {
+        tempArtifactCleanupFns.push(() => prerenderedText.cleanup?.());
+        const textInputIndex = built.inputs.length;
+        const textInputLabel = `txtcanvas${textInputIndex}`;
+        const textMixedLabel = `vtxtcanvas${textInputIndex}`;
+        built.inputs.push(prerenderedText.inputPath);
+        built.filter = `${built.filter};[${textInputIndex}:v]setpts=PTS-STARTPTS,format=rgba[${textInputLabel}];[${built.map.v}][${textInputLabel}]overlay=x=0:y=0:eof_action=pass:repeatlast=0:format=auto:alpha=straight[${textMixedLabel}]`;
+        built.map = { ...built.map, v: textMixedLabel };
       }
       throwIfCancelled();
       const prerenderedFx = await renderCanvasFxOverlaySource(graphProject, rangeStart, rangeEnd, renderTarget, debugSession, hooks);
@@ -5127,6 +5949,10 @@ async function renderProject({ project, settings, region, outputPath }, hooks = 
     const outFmt = ffmpegFormatForExt(outExt);
     const stderrTail = [];
     let filterScriptPath = "";
+    let watchdogTimer = null;
+    let watchdogWarned = false;
+    let watchdogTimedOut = false;
+    let lastActivityAt = Date.now();
     const renderPathStage = process.platform === "win32"
       ? createRenderPathStage(inputs, outputPath)
       : null;
@@ -5144,6 +5970,10 @@ async function renderProject({ project, settings, region, outputPath }, hooks = 
       outputStaged: !!renderPathStage?.outputStaged
     });
     const finalizeTempArtifacts = () => {
+      if (watchdogTimer) {
+        clearInterval(watchdogTimer);
+        watchdogTimer = null;
+      }
       cleanupTempFile(filterScriptPath);
       filterScriptPath = "";
       renderPathStage?.cleanup?.();
@@ -5155,6 +5985,32 @@ async function renderProject({ project, settings, region, outputPath }, hooks = 
           // ignore temp artifact cleanup failures
         }
       }
+    };
+    const touchWatchdog = () => {
+      lastActivityAt = Date.now();
+    };
+    const startWatchdog = () => {
+      if (watchdogTimer) return;
+      watchdogTimer = setInterval(() => {
+        if (isCancelled() || watchdogTimedOut) return;
+        const idleFor = Date.now() - lastActivityAt;
+        if (idleFor >= RENDER_NO_PROGRESS_HARD_TIMEOUT_MS) {
+          watchdogTimedOut = true;
+          hooks.onWatchdog?.("render_watchdog_timeout", { idleForMs: idleFor });
+          try {
+            if (cmd?.ffmpegProc?.pid) {
+              void killPidTree(cmd.ffmpegProc.pid);
+            } else {
+              cmd.kill?.("SIGKILL");
+            }
+          } catch {
+            // ignore kill failures; the error event will surface if the process exits.
+          }
+        } else if (!watchdogWarned && idleFor >= RENDER_NO_PROGRESS_WARNING_MS) {
+          watchdogWarned = true;
+          hooks.onWatchdog?.("render_no_progress_warning", { idleForMs: idleFor });
+        }
+      }, 5000);
     };
 
     try {
@@ -5235,6 +6091,7 @@ async function renderProject({ project, settings, region, outputPath }, hooks = 
 
     cmd = cmd
       .on("stderr", (line) => {
+        touchWatchdog();
         const s = String(line || "").trim();
         if (!s) return;
         stderrTail.push(s);
@@ -5242,10 +6099,13 @@ async function renderProject({ project, settings, region, outputPath }, hooks = 
         hooks.onStderr?.(s);
       })
       .on("start", (line) => {
+        touchWatchdog();
+        startWatchdog();
         hooks.onStart?.(line, cmd);
       })
       .on("progress", (p) => {
         if (isCancelled()) return;
+        touchWatchdog();
         // p.percent is sometimes undefined; renderer estimates too.
         mainWindow?.webContents.send("render-progress", { ...p, jobId: hooks.jobId || 0 });
         hooks.onProgress?.(p);
@@ -5258,6 +6118,10 @@ async function renderProject({ project, settings, region, outputPath }, hooks = 
         }
         const tail = summarizeFfmpegStderr(stderrTail.slice(-40));
         hooks.onError?.(e, { stderrTail: [...stderrTail], stderrSummary: tail });
+        if (watchdogTimedOut) {
+          reject(new Error("응답 없음 감지, 렌더 프로세스 중단"));
+          return;
+        }
         const msg = String(e?.message || e);
         reject(new Error(tail ? `${msg} | stderr_tail: ${tail}` : msg));
       })
@@ -5331,6 +6195,7 @@ function broadcastRenderState() {
     timemark: activeRender.timemark,
     durationSec: activeRender.durationSec || 0,
     message: activeRender.message,
+    errorDetail: activeRender.errorDetail || "",
     debugLogPath: activeRender.debugLogPath || "",
     outputPath: activeRender.outputPath
   };
@@ -5488,6 +6353,7 @@ async function stopActiveRender(reset = true, options = {}) {
     activeRender.timemark = "";
     activeRender.durationSec = 0;
     activeRender.message = finalMessage;
+    activeRender.errorDetail = "";
   }
   broadcastRenderState();
 }
@@ -5555,6 +6421,7 @@ async function startRenderFromPayload(payload, options = {}) {
       status: "done",
       percent: 100,
       message: "done",
+      errorDetail: "",
       durationSec: activeRender.durationSec || 0,
       command: null,
       pid: null,
@@ -5573,6 +6440,7 @@ async function startRenderFromPayload(payload, options = {}) {
     setJobState({
       status: "error",
       message: stateMessage,
+      errorDetail: String(dialogMessage || errorResult || ""),
       command: null,
       pid: null,
       childPids: new Set(),
@@ -5593,7 +6461,8 @@ async function startRenderFromPayload(payload, options = {}) {
   activeRender.outputPath = outPath;
   activeRender.outputPaths = [];
   trackActiveOutputPath(outPath);
-  activeRender.message = "running";
+  activeRender.message = "preflight_project";
+  activeRender.errorDetail = "";
   activeRender.payload = payload;
   activeRender.openFolderAfter = !!options.openFolderAfter;
   activeRender.command = null;
@@ -5670,6 +6539,16 @@ async function startRenderFromPayload(payload, options = {}) {
         `error=${String(err?.message || err || "")}`,
         `stderrSummary=${summary}`
       ].join("\n"));
+    },
+    onStage: (message, extra = {}) => {
+      if (!isCurrentJob()) return;
+      debugSession.write(`Attempt stage: ${attemptLabel}`, `${String(message || "")} ${JSON.stringify(extra || {})}`);
+      setJobState({ message: String(message || activeRender.message) });
+    },
+    onWatchdog: (message, extra = {}) => {
+      if (!isCurrentJob()) return;
+      debugSession.write(`Attempt watchdog: ${attemptLabel}`, `${String(message || "")} ${JSON.stringify(extra || {})}`);
+      setJobState({ message: String(message || "render_no_progress_warning") });
     }
   });
 
@@ -5741,6 +6620,44 @@ async function startRenderFromPayload(payload, options = {}) {
       );
     }
   };
+
+  let preflightResult = null;
+  try {
+    preflightResult = await preflightRenderProject(payload, cancelToken, debugSession, {
+      onStage: (message, extra = {}) => {
+        if (!isCurrentJob()) return;
+        setJobState({
+          message: String(message || "preflight_project"),
+          percent: Math.max(activeRender.percent, 0)
+        });
+        if (extra?.warnings) debugSession.write("Preflight stage warnings", JSON.stringify(extra.warnings));
+      }
+    });
+  } catch (preflightErr) {
+    if (isCancelledOrStale(preflightErr)) return finishCancelled(preflightErr);
+    return failCurrentJob(
+      "preflight_failed",
+      String(preflightErr?.message || preflightErr || "렌더링 사전 검사에 실패했습니다."),
+      String(preflightErr?.message || preflightErr || "preflight failed")
+    );
+  }
+  if (!preflightResult?.ok) {
+    const reason = String(preflightResult?.error || "렌더링 사전 검사에 실패했습니다.");
+    debugSession.write("Preflight blocked render", [
+      `error=${reason}`,
+      `warnings=${(preflightResult?.warnings || []).join(" | ")}`
+    ].join("\n"));
+    return failCurrentJob("preflight_failed", reason, reason);
+  }
+  payload = preflightResult.payload || payload;
+  activeRender.payload = payload;
+  if (preflightResult?.warnings?.length) {
+    debugSession.write("Preflight warnings", preflightResult.warnings.join("\n"));
+  }
+  setJobState({
+    message: "actual_render_start",
+    percent: Math.max(activeRender.percent, 0)
+  });
 
   const runPromise = renderProject(
     { project: payload.project, settings: payload.settings, region: payload.region, outputPath: outPath },
@@ -6051,25 +6968,36 @@ ipcMain.handle("read-file-buffer", async (_evt, filePath) => {
 });
 
 ipcMain.handle("save-project", async (_evt, projectJson, preferredPath = "") => {
+  const preferred = String(preferredPath || "").replace(/\.json$/i, "");
+  const defaultPath = preferred ? ensureVsmExtension(preferred) : `untitled.${VIDEOSMITH_PROJECT_EXT}`;
   const res = await dialog.showSaveDialog(mainWindow, {
     title: "프로젝트 저장",
-    defaultPath: preferredPath || "videosmith-project.json",
-    filters: [{ name: "VideoSmith Project", extensions: ["json"] }]
+    defaultPath,
+    filters: [{ name: "VideoSmith Project", extensions: [VIDEOSMITH_PROJECT_EXT] }]
   });
   if (res.canceled || !res.filePath) return { ok: false };
-  await fs.promises.writeFile(res.filePath, projectJson, "utf-8");
-  return { ok: true, filePath: res.filePath };
+  const filePath = ensureVsmExtension(res.filePath);
+  await fs.promises.writeFile(filePath, encodeVideoSmithProjectFile(projectJson));
+  return { ok: true, filePath };
 });
 
 ipcMain.handle("load-project", async () => {
   const res = await dialog.showOpenDialog(mainWindow, {
     title: "프로젝트 불러오기",
     properties: ["openFile"],
-    filters: [{ name: "VideoSmith Project", extensions: ["json"] }]
+    filters: [{ name: "VideoSmith Project", extensions: [VIDEOSMITH_PROJECT_EXT] }]
   });
   if (res.canceled || !res.filePaths?.[0]) return { ok: false };
-  const txt = await fs.promises.readFile(res.filePaths[0], "utf-8");
-  return { ok: true, json: txt, filePath: res.filePaths[0] };
+  try {
+    const buffer = await fs.promises.readFile(res.filePaths[0]);
+    const json = decodeVideoSmithProjectFile(buffer);
+    return { ok: true, json, filePath: res.filePaths[0] };
+  } catch (error) {
+    return {
+      ok: false,
+      error: String(error?.message || error || "Invalid VideoSmith project file.")
+    };
+  }
 });
 
 ipcMain.handle("save-autosave-cache", async (_evt, payload) => {
@@ -6578,15 +7506,25 @@ ipcMain.handle("render", async (_evt, payload) => {
   });
   if (res.canceled || !res.filePath) return { ok: false };
 
+  const debugSession = createRenderDebugSession({ project, settings, region }, res.filePath);
   try {
-    await renderProject({ project, settings, region, outputPath: res.filePath });
+    const preflight = await preflightRenderProject({ project, settings, region }, null, debugSession);
+    if (!preflight?.ok) {
+      debugSession.close();
+      return { ok: false, error: String(preflight?.error || "렌더링 사전 검사에 실패했습니다.") };
+    }
+    await renderProject({
+      project: preflight.payload?.project || project,
+      settings: preflight.payload?.settings || settings,
+      region: preflight.payload?.region || region,
+      outputPath: res.filePath
+    }, { debugSession });
     await validateFinalOutputPath(res.filePath, null, "dialog_render");
+    debugSession.close();
     return { ok: true, filePath: res.filePath };
   } catch (e) {
+    debugSession.write("Dialog render failed", String(e?.message || e));
+    debugSession.close();
     return { ok: false, error: String(e?.message || e) };
   }
 });
-
-
-
-
