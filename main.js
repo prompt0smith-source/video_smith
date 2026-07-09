@@ -71,9 +71,36 @@ const FLUENT_ENCODER_FALLBACKS = Object.freeze({
 });
 
 function cloneCapabilityMap(sourceMap = {}) {
-  return Object.fromEntries(
+  const result = Object.fromEntries(
     Object.entries(sourceMap).map(([key, value]) => [key, { ...value }])
   );
+  const findKey = (name) => {
+    const raw = String(name || "");
+    if (raw in result) return raw;
+    const lower = raw.toLowerCase();
+    if (lower in result) return lower;
+    const underscored = lower.replace(/-/g, "_");
+    if (underscored in result) return underscored;
+    const dashed = lower.replace(/_/g, "-");
+    if (dashed in result) return dashed;
+    return "";
+  };
+  Object.defineProperties(result, {
+    get: {
+      enumerable: false,
+      value(name) {
+        const key = findKey(name);
+        return key ? result[key] : undefined;
+      }
+    },
+    has: {
+      enumerable: false,
+      value(name) {
+        return !!findKey(name);
+      }
+    }
+  });
+  return result;
 }
 
 function installFluentFfmpegCapabilityFallbacks() {
@@ -127,13 +154,23 @@ function installFluentFfmpegSpawnGuard() {
       return undefined;
     }
   });
+  const normalizeRing = (ring) => (
+    ring && typeof ring.get === "function" ? ring : makeEmptyRing()
+  );
   proto._spawnFfmpeg = function(...args) {
-    const endCB = typeof args[3] === "function" ? args[3] : null;
+    const safeArgs = [...args];
+    const endCbIndex = typeof safeArgs[3] === "function" ? 3 : -1;
+    const originalEndCB = endCbIndex >= 0 ? safeArgs[endCbIndex] : null;
+    if (originalEndCB) {
+      safeArgs[endCbIndex] = function(err, stdoutRing, stderrRing) {
+        return originalEndCB.call(this, err, normalizeRing(stdoutRing), normalizeRing(stderrRing));
+      };
+    }
     try {
-      return originalSpawnFfmpeg.apply(this, args);
+      return originalSpawnFfmpeg.apply(this, safeArgs);
     } catch (err) {
-      if (endCB) {
-        endCB(err, makeEmptyRing(), makeEmptyRing());
+      if (safeArgs[endCbIndex]) {
+        safeArgs[endCbIndex](err, makeEmptyRing(), makeEmptyRing());
         return this;
       }
       throw err;
@@ -375,6 +412,9 @@ applyRuntimeBinaryPaths();
 installFluentFfmpegCapabilityFallbacks();
 installFluentFfmpegSpawnGuard();
 app.setName("VideoS");
+if (process.platform === "win32") {
+  app.setAppUserModelId("com.videosmith.app");
+}
 
 const MAX_W = 3840;
 const MAX_H = 2160;
@@ -4859,6 +4899,7 @@ function getRenderableCanvasTextOverlays(project, rangeStart, rangeEnd, debugSes
     .filter((item) => String(item.overlayType || "text") === "text")
     .filter((item) => {
       if (String(item._renderTextMode || "") === "canvas") return true;
+      if (hasRichTextRuns(item)) return true;
       return resolveVerifiedRenderFont(item, debugSession).requiresCanvasFallback;
     })
     .filter((item) => {
@@ -5241,6 +5282,20 @@ function projectUsesText(project = {}) {
   return (project.overlayItems || []).some((item) => String(item?.overlayType || "text") === "text" && String(item?.text || "").trim());
 }
 
+function hasRichTextRuns(item = {}) {
+  return Array.isArray(item.richTextRuns)
+    && item.richTextRuns.some((run) => {
+      const start = finiteNumber(run?.start, 0);
+      const end = finiteNumber(run?.end, 0);
+      return end > start && (
+        String(run?.color || "").trim()
+        || String(run?.fontFamily || "").trim()
+        || String(run?.fontFile || "").trim()
+        || String(run?.fontWeight || "").trim()
+      );
+    });
+}
+
 function sanitizeMediaClipForRender(clip = {}, warnings = []) {
   const next = { ...clip };
   const id = String(next.id || "clip");
@@ -5296,6 +5351,23 @@ function sanitizeOverlayForRender(overlay = {}, warnings = []) {
   next.manualFadeOutSec = Math.max(0, Math.min(finiteNumber(next.manualFadeOutSec, 0), next.duration));
   next.transitionInDurationSec = Math.max(0, Math.min(finiteNumber(next.transitionInDurationSec, 0), next.duration));
   next.transitionOutDurationSec = Math.max(0, Math.min(finiteNumber(next.transitionOutDurationSec, 0), next.duration));
+  if (overlayType === "text") {
+    const textLength = String(next.text || "").length;
+    next.richTextRuns = Array.isArray(next.richTextRuns)
+      ? next.richTextRuns.map((run) => {
+          const start = Math.max(0, Math.min(textLength, Math.floor(finiteNumber(run?.start, 0))));
+          const end = Math.max(start, Math.min(textLength, Math.ceil(finiteNumber(run?.end, start))));
+          return {
+            start,
+            end,
+            color: String(run?.color || "").trim(),
+            fontFamily: String(run?.fontFamily || "").trim(),
+            fontFile: String(run?.fontFile || "").trim(),
+            fontWeight: String(run?.fontWeight || "").trim()
+          };
+        }).filter((run) => run.end > run.start && (run.color || run.fontFamily || run.fontFile || run.fontWeight))
+      : [];
+  }
   if ((next.transitionInDurationSec + next.transitionOutDurationSec) > next.duration - MIN_OVERLAY_CLIP_SEC) {
     const budget = Math.max(0, next.duration - MIN_OVERLAY_CLIP_SEC);
     const total = Math.max(1e-6, next.transitionInDurationSec + next.transitionOutDurationSec);
@@ -5554,6 +5626,14 @@ async function preflightRenderProject(payload, token = null, debugSession = null
     nextPayload.project.overlayItems = (nextPayload.project.overlayItems || []).map((item) => {
       if (String(item?.overlayType || "text") !== "text" || !String(item?.text || "").trim()) return item;
       const verification = resolveVerifiedRenderFont(item, debugSession);
+      if (hasRichTextRuns(item)) {
+        return {
+          ...item,
+          _renderTextMode: "canvas",
+          _renderFontFile: verification.fontFile || "",
+          _renderTextReason: "rich_text_runs"
+        };
+      }
       if (!drawtextAvailable || verification.requiresCanvasFallback || !verification.canUseDrawtext) {
         return {
           ...item,
@@ -6885,11 +6965,13 @@ function createWindow() {
   const appIconPath = process.platform === "win32"
     ? path.join(__dirname, "Icon.ico")
     : path.join(__dirname, "Icon.png");
+  const appIconImage = electronNativeImage.createFromPath(appIconPath);
+  const appIcon = appIconImage && !appIconImage.isEmpty() ? appIconImage : appIconPath;
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
     title: "VideoS",
-    icon: appIconPath,
+    icon: appIcon,
     backgroundColor: "#090d12",
     webPreferences: {
       contextIsolation: true,
@@ -6986,6 +7068,14 @@ ipcMain.handle("save-project", async (_evt, projectJson, preferredPath = "") => 
   });
   if (res.canceled || !res.filePath) return { ok: false };
   const filePath = ensureVsmExtension(res.filePath);
+  await fs.promises.writeFile(filePath, encodeVideoSmithProjectFile(projectJson));
+  return { ok: true, filePath };
+});
+
+ipcMain.handle("save-project-to-path", async (_evt, projectJson, targetPath = "") => {
+  const rawPath = String(targetPath || "").trim();
+  if (!rawPath) return { ok: false, error: "missing file path" };
+  const filePath = ensureVsmExtension(rawPath.replace(/\.json$/i, ""));
   await fs.promises.writeFile(filePath, encodeVideoSmithProjectFile(projectJson));
   return { ok: true, filePath };
 });

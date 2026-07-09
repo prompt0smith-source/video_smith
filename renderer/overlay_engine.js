@@ -101,6 +101,56 @@
     el.style.webkitTextStroke = strokeWidth > 0 ? `${strokeWidth}px ${strokeColor}` : "0px transparent";
     el.style.textShadow = strokeWidth > 0 ? `0 1px ${Math.max(1, Math.round(strokeWidth * 1.25))}px rgba(0,0,0,0.35)` : "none";
   }
+  function normalizeRichTextRunsForRender(overlay, textLength) {
+    return (Array.isArray(overlay?.richTextRuns) ? overlay.richTextRuns : [])
+      .map((run) => {
+        const start = Math.max(0, Math.min(textLength, Math.floor(Number(run?.start || 0))));
+        const end = Math.max(start, Math.min(textLength, Math.ceil(Number(run?.end || start))));
+        return {
+          start,
+          end,
+          color: String(run?.color || "").trim(),
+          fontFamily: String(run?.fontFamily || "").trim(),
+          fontWeight: String(run?.fontWeight || "").trim()
+        };
+      })
+      .filter((run) => run.end > run.start && (run.color || run.fontFamily || run.fontWeight))
+      .sort((a, b) => a.start - b.start || a.end - b.end);
+  }
+  function renderRichTextContent(el, overlay) {
+    const text = String(overlay.text || "Text");
+    const runs = normalizeRichTextRunsForRender(overlay, text.length);
+    const renderKey = JSON.stringify({ text, runs });
+    if (el.dataset.richTextKey === renderKey) return;
+    el.dataset.richTextKey = renderKey;
+    el.textContent = "";
+    if (!runs.length) {
+      el.appendChild(document.createTextNode(text));
+      return;
+    }
+    let cursor = 0;
+    const appendText = (value, run = null) => {
+      if (!value) return;
+      if (!run) {
+        el.appendChild(document.createTextNode(value));
+        return;
+      }
+      const span = document.createElement("span");
+      span.textContent = value;
+      if (run.color) span.style.color = run.color;
+      if (run.fontFamily) span.style.fontFamily = run.fontFamily;
+      if (run.fontWeight) span.style.fontWeight = run.fontWeight;
+      el.appendChild(span);
+    };
+    runs.forEach((run) => {
+      const start = Math.max(cursor, run.start);
+      const end = Math.max(start, run.end);
+      if (start > cursor) appendText(text.slice(cursor, start));
+      appendText(text.slice(start, end), run);
+      cursor = end;
+    });
+    if (cursor < text.length) appendText(text.slice(cursor));
+  }
   function getTextBaseTransform(textAlign) {
     return textAlign === "left"
       ? "translate(0, 0)"
@@ -114,7 +164,7 @@
     const scaledFontSize = Math.max(10, Math.round(Number(overlay.fontSize || 64) * Number(frame.scale || 1)));
 
     el.dataset.overlayId = String(overlay.id || "");
-    el.textContent = overlay.text || "Text";
+    renderRichTextContent(el, overlay);
     el.style.left = `${Number(frame.left || 0) + Math.round(Number(frame.width || 0) * xNorm)}px`;
     el.style.top = `${Number(frame.top || 0) + Math.round(Number(frame.height || 0) * yNorm)}px`;
     el.style.maxWidth = `${Math.max(80, Number(frame.width || 0) * boxWidth)}px`;
@@ -595,6 +645,7 @@
         fontFamily: overlay.fontFamily || "Malgun Gothic",
         fontWeight: String(overlay.fontWeight || 700),
         color: overlay.color || "#ffffff",
+        richTextRuns: Array.isArray(overlay.richTextRuns) ? overlay.richTextRuns : [],
         opacity: Number(overlay.opacity ?? 1),
         strokeColor: overlay.strokeColor || "#000000",
         strokeWidth: Number(overlay.strokeWidth || 0),
@@ -1132,6 +1183,68 @@
     if (/^["'].*["']$/.test(family)) return family;
     return `"${family.replace(/["\\]/g, "")}"`;
   }
+  function getCanvasFontStack(fontFamily) {
+    return [
+      quoteCanvasFontFamily(fontFamily || "Malgun Gothic"),
+      "\"Apple SD Gothic Neo\"",
+      "\"Malgun Gothic\"",
+      "\"Noto Sans CJK KR\"",
+      "\"NanumGothic\"",
+      "sans-serif"
+    ].join(", ");
+  }
+  function makeCanvasTextStyle(overlay, run, fontSize) {
+    const fontWeight = String(run?.fontWeight || overlay.fontWeight || 700);
+    const fontFamily = getCanvasFontStack(run?.fontFamily || overlay.fontFamily || "Malgun Gothic");
+    return {
+      color: run?.color || overlay.color || "#ffffff",
+      fontWeight,
+      fontFamily,
+      font: `${fontWeight} ${fontSize}px ${fontFamily}`
+    };
+  }
+  function sameCanvasTextStyle(a, b) {
+    return !!a && !!b && a.color === b.color && a.font === b.font;
+  }
+  function findTextRunAtIndex(runs, index) {
+    return runs.find((run) => index >= run.start && index < run.end) || null;
+  }
+  function appendCanvasSegment(line, text, style, width) {
+    if (!text) return;
+    const last = line.segments[line.segments.length - 1];
+    if (last && sameCanvasTextStyle(last.style, style)) {
+      last.text += text;
+      last.width += width;
+    } else {
+      line.segments.push({ text, style, width });
+    }
+    line.width += width;
+  }
+  function buildRichCanvasLines(ctx, overlay, maxWidth, fontSize) {
+    const text = String(overlay.text || "Text");
+    const runs = normalizeRichTextRunsForRender(overlay, text.length);
+    const lines = [];
+    let line = { segments: [], width: 0 };
+    const pushLine = () => {
+      lines.push(line);
+      line = { segments: [], width: 0 };
+    };
+    for (let index = 0; index < text.length; index += 1) {
+      const ch = text[index];
+      if (ch === "\r") continue;
+      if (ch === "\n") {
+        pushLine();
+        continue;
+      }
+      const style = makeCanvasTextStyle(overlay, findTextRunAtIndex(runs, index), fontSize);
+      ctx.font = style.font;
+      const charWidth = ctx.measureText(ch).width;
+      if (line.segments.length && line.width + charWidth > maxWidth) pushLine();
+      appendCanvasSegment(line, ch, style, charWidth);
+    }
+    if (line.segments.length || !lines.length) lines.push(line);
+    return lines;
+  }
   function wrapCanvasText(ctx, text, maxWidth) {
     const paragraphs = String(text || "").split(/\r?\n/);
     const lines = [];
@@ -1195,14 +1308,7 @@
         const fontSize = Math.max(10, Math.round(Number(overlay.fontSize || 64) * Number(frame.scale || 1)));
         const lineHeight = Math.max(fontSize, fontSize * Math.max(0.75, Number(overlay.lineHeight || 1.18)));
         const fontWeight = String(overlay.fontWeight || 700);
-        const fontFamily = [
-          quoteCanvasFontFamily(overlay.fontFamily || "Malgun Gothic"),
-          "\"Apple SD Gothic Neo\"",
-          "\"Malgun Gothic\"",
-          "\"Noto Sans CJK KR\"",
-          "\"NanumGothic\"",
-          "sans-serif"
-        ].join(", ");
+        const fontFamily = getCanvasFontStack(overlay.fontFamily || "Malgun Gothic");
         const maxWidth = Math.max(32, Number(frame.width || width) * Math.max(0.08, Number(overlay.boxWidth || 0.26)));
         const anchorX = Number(frame.left || 0) + (Number(frame.width || width) * clamp(Number(overlay.x ?? 0.5), 0, 1));
         const y = Number(frame.top || 0) + (Number(frame.height || height) * clamp(Number(overlay.y ?? 0.82), 0, 1));
@@ -1215,20 +1321,45 @@
         ctx.lineJoin = "round";
         ctx.miterLimit = 2;
         const drawX = align === "left" ? x : (align === "right" ? x + maxWidth : x + (maxWidth / 2));
-        const lines = wrapCanvasText(ctx, overlay.text || "Text", maxWidth);
         const strokeWidth = overlay.noStroke ? 0 : Math.max(0, Number(overlay.strokeWidth || 0) * Number(frame.scale || 1));
-        lines.forEach((line, lineIndex) => {
-          const lineY = y + (lineIndex * lineHeight);
-          if (strokeWidth > 0) {
-            ctx.lineWidth = strokeWidth * 2;
-            ctx.strokeStyle = overlay.strokeColor || "#000000";
-            ctx.strokeText(line, drawX, lineY, maxWidth);
-          }
-          if (!overlay.noFill) {
-            ctx.fillStyle = overlay.color || "#ffffff";
-            ctx.fillText(line, drawX, lineY, maxWidth);
-          }
-        });
+        const richRuns = normalizeRichTextRunsForRender(overlay, String(overlay.text || "Text").length);
+        if (richRuns.length) {
+          ctx.textAlign = "left";
+          const lines = buildRichCanvasLines(ctx, overlay, maxWidth, fontSize);
+          lines.forEach((line, lineIndex) => {
+            const lineY = y + (lineIndex * lineHeight);
+            let cursorX = align === "right"
+              ? x + maxWidth - line.width
+              : (align === "center" ? x + ((maxWidth - line.width) / 2) : x);
+            line.segments.forEach((segment) => {
+              ctx.font = segment.style.font;
+              if (strokeWidth > 0) {
+                ctx.lineWidth = strokeWidth * 2;
+                ctx.strokeStyle = overlay.strokeColor || "#000000";
+                ctx.strokeText(segment.text, cursorX, lineY);
+              }
+              if (!overlay.noFill) {
+                ctx.fillStyle = segment.style.color || overlay.color || "#ffffff";
+                ctx.fillText(segment.text, cursorX, lineY);
+              }
+              cursorX += segment.width;
+            });
+          });
+        } else {
+          const lines = wrapCanvasText(ctx, overlay.text || "Text", maxWidth);
+          lines.forEach((line, lineIndex) => {
+            const lineY = y + (lineIndex * lineHeight);
+            if (strokeWidth > 0) {
+              ctx.lineWidth = strokeWidth * 2;
+              ctx.strokeStyle = overlay.strokeColor || "#000000";
+              ctx.strokeText(line, drawX, lineY, maxWidth);
+            }
+            if (!overlay.noFill) {
+              ctx.fillStyle = overlay.color || "#ffffff";
+              ctx.fillText(line, drawX, lineY, maxWidth);
+            }
+          });
+        }
         ctx.restore();
       });
     return canvas.toDataURL("image/png");

@@ -2,8 +2,17 @@
   const STORAGE_KEY = "pearl.lang";
   let isSettingsOpen = false;
   let isThirdPartyOpen = false;
+  let activeLegalDoc = "thirdParty";
   let thirdPartyReturnFocus = null;
   let gearAnim = null;
+  const LEGAL_DOCS = {
+    legal: { title: "legalNoticePanelTitle", body: "legalNoticePanelBody" },
+    openSource: { title: "openSourceLicensesTitle", body: "openSourceLicensesBody" },
+    thirdParty: { title: "thirdPartyNoticesTitle", body: "thirdPartyNoticesBody" },
+    ffmpeg: { title: "ffmpegNoticeTitle", body: "ffmpegNoticeBody" },
+    privacy: { title: "privacyPolicyTitle", body: "privacyPolicyBody" },
+    userContent: { title: "userContentNoticeTitle", body: "userContentNoticeBody" }
+  };
 
   function getDict(lang) {
     if (lang === "en") return window.PearlLangEn || {};
@@ -47,9 +56,24 @@
     animateGear(next ? +1 : -1);
   }
 
-  function toggleThirdPartyNotices(open) {
+  function currentLang() {
+    return localStorage.getItem(STORAGE_KEY) || "ko";
+  }
+
+  function setLegalDocContent(docKey = activeLegalDoc) {
+    activeLegalDoc = LEGAL_DOCS[docKey] ? docKey : "thirdParty";
+    const d = getDict(currentLang());
+    const spec = LEGAL_DOCS[activeLegalDoc];
+    const title = document.getElementById("thirdPartyModalTitle");
+    const body = document.querySelector("#thirdPartyModal .thirdPartyBody");
+    if (title) title.textContent = d[spec.title] || d.thirdPartyNoticesTitle || "Notices";
+    if (body) body.innerHTML = d[spec.body] || d.thirdPartyNoticesBody || "";
+  }
+
+  function toggleThirdPartyNotices(open, docKey = activeLegalDoc) {
     const modal = document.getElementById("thirdPartyModal");
     if (!modal) return;
+    if (open) setLegalDocContent(docKey);
     const next = typeof open === "boolean" ? open : !isThirdPartyOpen;
     if (next === isThirdPartyOpen) return;
 
@@ -65,6 +89,10 @@
       thirdPartyReturnFocus = null;
       if (target && document.contains(target)) target.focus();
     }
+  }
+
+  function showLegalNoticeModal(docKey = "legal") {
+    toggleThirdPartyNotices(true, docKey);
   }
 
   function applyLanguage(lang) {
@@ -109,6 +137,7 @@
       const p = outputFolderHint.dataset.outputPath || "";
       outputFolderHint.textContent = p || d.outputFolderDefault || "Default: project folder";
     }
+    if (isThirdPartyOpen) setLegalDocContent(activeLegalDoc);
     localStorage.setItem(STORAGE_KEY, lang);
     window.dispatchEvent(new CustomEvent("pearl-languagechange", {
       detail: { lang, dict: d }
@@ -120,7 +149,6 @@
     const overlay = document.getElementById("settingsOverlay");
     const btnClose = document.getElementById("btnSettingsClose");
     const thirdPartyModal = document.getElementById("thirdPartyModal");
-    const btnThirdParty = document.getElementById("btnThirdPartyNotices");
     const btnThirdPartyClose = document.getElementById("thirdPartyModalClose");
     const btnThirdPartyOk = document.getElementById("thirdPartyModalOk");
     const sel = document.getElementById("selLang");
@@ -130,7 +158,9 @@
     btnOpen?.addEventListener("click", () => toggleSettings(true));
     overlay?.addEventListener("click", () => toggleSettings(false));
     btnClose?.addEventListener("click", () => toggleSettings(false));
-    btnThirdParty?.addEventListener("click", () => toggleThirdPartyNotices(true));
+    document.querySelectorAll("[data-legal-doc]").forEach((button) => {
+      button.addEventListener("click", () => showLegalNoticeModal(button.dataset.legalDoc || "legal"));
+    });
     btnThirdPartyClose?.addEventListener("click", () => toggleThirdPartyNotices(false));
     btnThirdPartyOk?.addEventListener("click", () => toggleThirdPartyNotices(false));
     thirdPartyModal?.addEventListener("mousedown", (e) => {
@@ -155,6 +185,7 @@
     getDict,
     toggleSettings,
     toggleThirdPartyNotices,
+    showLegalNoticeModal,
     get isOpen(){ return isSettingsOpen; },
     get isThirdPartyOpen(){ return isThirdPartyOpen; }
   };

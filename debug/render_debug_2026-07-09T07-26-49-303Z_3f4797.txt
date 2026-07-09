@@ -360,3 +360,10 @@ outputStaged=false
 attempt=primary
 outputPath=C:\Users\크로버-유진규\Videos\render_1783582009302.mp4
 
+[2026-07-09T07:27:03.474Z] Final output validated
+primary: C:\Users\크로버-유진규\Videos\render_1783582009302.mp4
+size=16272200
+
+[2026-07-09T07:27:03.474Z] Render completed
+finalOutputPath=C:\Users\크로버-유진규\Videos\render_1783582009302.mp4
+

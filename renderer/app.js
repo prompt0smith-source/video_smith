@@ -125,8 +125,11 @@
     layout: $("layout"),
     btnUpload: $("btnUpload"),
     btnSave: $("btnSave"),
+    btnSaveAs: $("btnSaveAs"),
     btnLoad: $("btnLoad"),
     btnRender: $("btnRender"),
+    btnUndo: $("btnUndo"),
+    btnRedo: $("btnRedo"),
     btnRegion: $("btnRegion"),
     selFps: $("selFps"),
     selRes: $("selRes"),
@@ -465,6 +468,21 @@
   }
 
   const cmdStack = new window.CommandStack();
+  function updateHistoryToolbarState() {
+    if (els.btnUndo) els.btnUndo.disabled = !(cmdStack.undoStack?.length > 0);
+    if (els.btnRedo) els.btnRedo.disabled = !(cmdStack.redoStack?.length > 0);
+  }
+  function undoHistoryAction() {
+    cmdStack.undo();
+    updateHistoryToolbarState();
+  }
+  function redoHistoryAction() {
+    cmdStack.redo();
+    updateHistoryToolbarState();
+  }
+  cmdStack.onChange = updateHistoryToolbarState;
+  const LEGAL_NOTICE_VERSION = "2026.07.09";
+  const LEGAL_NOTICE_ACCEPT_KEY = "videosmith.legalNoticeAcceptedVersion";
   const TERMS_ACCEPT_KEY = "pearl.terms.accepted.once";
   const TERMS_ACCEPT_KEY_LEGACY = "pearl.terms.accepted.effectiveDate";
 
@@ -1331,37 +1349,32 @@
 
   function ensureTermsAccepted() {
     return new Promise((resolve) => {
-      const accepted = localStorage.getItem(TERMS_ACCEPT_KEY);
-      const legacyAccepted = localStorage.getItem(TERMS_ACCEPT_KEY_LEGACY);
-      if (!accepted && legacyAccepted) localStorage.setItem(TERMS_ACCEPT_KEY, "1");
-      if ((accepted || localStorage.getItem(TERMS_ACCEPT_KEY)) === "1") {
+      const acceptedVersion = localStorage.getItem(LEGAL_NOTICE_ACCEPT_KEY);
+      if (acceptedVersion === LEGAL_NOTICE_VERSION) {
         resolve(true);
         return;
       }
       const modal = els.termsModal;
       const chk = els.termsAgreeCheck;
       const btnOk = els.btnTermsAccept;
-      const btnNo = els.btnTermsDecline;
-      if (!modal || !chk || !btnOk || !btnNo) {
+      const btnView = els.btnTermsDecline;
+      if (!modal || !btnOk || !btnView) {
         resolve(true);
         return;
       }
-      chk.checked = false;
-      btnOk.disabled = true;
+      if (chk) chk.checked = true;
+      btnOk.disabled = false;
       modal.classList.remove("hidden");
 
-      chk.onchange = () => {
-        btnOk.disabled = !chk.checked;
-      };
+      if (chk) chk.onchange = null;
       btnOk.onclick = () => {
-        if (!chk.checked) return;
+        localStorage.setItem(LEGAL_NOTICE_ACCEPT_KEY, LEGAL_NOTICE_VERSION);
         localStorage.setItem(TERMS_ACCEPT_KEY, "1");
         modal.classList.add("hidden");
         resolve(true);
       };
-      btnNo.onclick = () => {
-        window.close();
-        resolve(false);
+      btnView.onclick = () => {
+        window.PearlSettings?.showLegalNoticeModal?.("legal");
       };
     });
   }
@@ -1666,6 +1679,93 @@
     if (/^#[0-9a-f]{6}$/i.test(raw)) return raw.toLowerCase();
     if (/^[0-9a-f]{6}$/i.test(raw)) return `#${raw.toLowerCase()}`;
     return fallback;
+  }
+
+  function normalizeRichTextRuns(runs = [], textOrLength = 0) {
+    const textLength = typeof textOrLength === "number"
+      ? Math.max(0, Math.floor(textOrLength))
+      : String(textOrLength || "").length;
+    return (Array.isArray(runs) ? runs : [])
+      .map((run) => {
+        const start = Math.max(0, Math.min(textLength, Math.floor(Number(run?.start || 0))));
+        const end = Math.max(start, Math.min(textLength, Math.ceil(Number(run?.end || start))));
+        const color = normalizeColor(run?.color, "");
+        const fontFamily = String(run?.fontFamily || "").trim();
+        const fontFile = String(run?.fontFile || "").trim();
+        const fontWeight = String(run?.fontWeight || "").trim();
+        return { start, end, color, fontFamily, fontFile, fontWeight };
+      })
+      .filter((run) => run.end > run.start && (run.color || run.fontFamily || run.fontFile || run.fontWeight))
+      .sort((a, b) => a.start - b.start || a.end - b.end);
+  }
+
+  function getOverlayTextSelectionRange() {
+    if (!els.overlayTextInput) return null;
+    const start = Number(els.overlayTextInput.selectionStart ?? 0);
+    const end = Number(els.overlayTextInput.selectionEnd ?? start);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+    return {
+      start: Math.max(0, Math.min(start, end)),
+      end: Math.max(0, Math.max(start, end))
+    };
+  }
+
+  function getTextStyleForSelection(overlay) {
+    const base = {
+      color: normalizeColor(overlay?.color, "#ffffff"),
+      fontFamily: String(overlay?.fontFamily || "Malgun Gothic"),
+      fontFile: String(overlay?.fontFile || ""),
+      fontWeight: String(overlay?.fontWeight || "700")
+    };
+    if (!overlay || overlay.overlayType !== "text") return base;
+    const text = String(overlay.text || "");
+    const range = document.activeElement === els.overlayTextInput ? getOverlayTextSelectionRange() : null;
+    const probeIndex = range
+      ? Math.max(0, Math.min(Math.max(0, text.length - 1), range.end > range.start ? range.start : range.start - 1))
+      : -1;
+    if (probeIndex < 0 || !text.length) return base;
+    const runs = normalizeRichTextRuns(overlay.richTextRuns, text);
+    const run = runs.find((entry) => probeIndex >= entry.start && probeIndex < entry.end);
+    if (!run) return base;
+    return {
+      color: run.color || base.color,
+      fontFamily: run.fontFamily || base.fontFamily,
+      fontFile: run.fontFile || base.fontFile,
+      fontWeight: run.fontWeight || base.fontWeight
+    };
+  }
+
+  function applyRichTextSelectionPatch(overlay, patch = {}) {
+    if (!overlay || overlay.overlayType !== "text") return false;
+    const text = String(overlay.text || "");
+    const range = getOverlayTextSelectionRange();
+    if (!range || range.end <= range.start) {
+      overlay.richTextRuns = normalizeRichTextRuns(overlay.richTextRuns, text);
+      return false;
+    }
+    const start = Math.max(0, Math.min(text.length, range.start));
+    const end = Math.max(start, Math.min(text.length, range.end));
+    if (end <= start) return false;
+    const stylePatch = {
+      color: patch.color ? normalizeColor(patch.color, "") : "",
+      fontFamily: patch.fontFamily ? String(patch.fontFamily).trim() : "",
+      fontFile: patch.fontFile ? String(patch.fontFile).trim() : "",
+      fontWeight: patch.fontWeight ? String(patch.fontWeight).trim() : ""
+    };
+    const hasPatch = stylePatch.color || stylePatch.fontFamily || stylePatch.fontFile || stylePatch.fontWeight;
+    if (!hasPatch) return false;
+    const nextRuns = [];
+    normalizeRichTextRuns(overlay.richTextRuns, text).forEach((run) => {
+      if (run.end <= start || run.start >= end) {
+        nextRuns.push(run);
+        return;
+      }
+      if (run.start < start) nextRuns.push({ ...run, end: start });
+      if (run.end > end) nextRuns.push({ ...run, start: end });
+    });
+    nextRuns.push({ start, end, ...stylePatch });
+    overlay.richTextRuns = normalizeRichTextRuns(nextRuns, text);
+    return true;
   }
 
   function clampMotionPathDelta(value, fallback = 0) {
@@ -2383,7 +2483,8 @@
       transitionInDurationSec: Math.max(0, Number(defaults.transitionInDurationSec ?? 0)),
       transitionOutType: normalizeTextOverlayTransitionType(defaults.transitionOutType),
       transitionOutDurationSec: Math.max(0, Number(defaults.transitionOutDurationSec ?? 0)),
-      transitionStrength: Math.max(0.4, Math.min(1.6, Number(defaults.transitionStrength ?? 1)))
+      transitionStrength: Math.max(0.4, Math.min(1.6, Number(defaults.transitionStrength ?? 1))),
+      richTextRuns: normalizeRichTextRuns(defaults.richTextRuns, defaults.text == null ? "Text" : String(defaults.text))
     };
   }
 
@@ -3276,11 +3377,12 @@
     );
   }
 
-  function focusOverlayInspector() {
+  function focusOverlayInspector(options = {}) {
+    const selectText = options.selectText !== false;
     toolSheetController?.switchTo?.("text");
     requestAnimationFrame(() => {
       els.overlayTextInput?.focus?.();
-      els.overlayTextInput?.select?.();
+      if (selectText) els.overlayTextInput?.select?.();
     });
   }
 
@@ -3954,6 +4056,19 @@
       clearSelection();
       renderAll();
     }
+  }
+
+  function handlePreviewTextEditRequest(e) {
+    if (e.button != null && e.button !== 0) return;
+    if (state.ui.internalDragging) return;
+    if (e.target?.closest?.(".previewOverlayHandle,.previewMotionPathHandle,.previewMotionPathLine")) return;
+    const overlay = findPreviewOverlayAtPoint(e.clientX, e.clientY);
+    if (!overlay?.id || overlay.overlayType !== "text") return;
+    e.preventDefault();
+    e.stopPropagation();
+    selectSingle("overlay", overlay.id, overlay.section || 1);
+    renderAll();
+    focusOverlayInspector({ selectText: false });
   }
 
   function computeAnchoredResizeRect(startRect, handleName, pointer, frame, minWidth = 20, minHeight = 20) {
@@ -4823,18 +4938,19 @@
     if (els.overlayTransitionOutDurationValue) els.overlayTransitionOutDurationValue.textContent = `${formatTimelineSec(Math.min(transitionDurationMax, Number(overlay.transitionOutDurationSec || 0)))}s`;
     if (els.overlayTransitionStrengthInput) els.overlayTransitionStrengthInput.value = String(Math.max(0.4, Math.min(1.6, Number(overlay.transitionStrength ?? 1))));
     if (els.overlayTransitionStrengthValue) els.overlayTransitionStrengthValue.textContent = `${Math.max(0.4, Math.min(1.6, Number(overlay.transitionStrength ?? 1))).toFixed(2)}x`;
+    const inspectorTextStyle = getTextStyleForSelection(overlay);
     if (els.overlayPosXInput) els.overlayPosXInput.value = String(Number(overlay.x ?? 0.5));
     if (els.overlayPosXValue) els.overlayPosXValue.textContent = `${Math.round(Number(overlay.x ?? 0.5) * 100)}%`;
     if (els.overlayPosYInput) els.overlayPosYInput.value = String(Number(overlay.y ?? 0.82));
     if (els.overlayPosYValue) els.overlayPosYValue.textContent = `${Math.round(Number(overlay.y ?? 0.82) * 100)}%`;
-    if (els.overlayColorInput) els.overlayColorInput.value = normalizeColor(overlay.color, "#ffffff");
+    if (els.overlayColorInput) els.overlayColorInput.value = normalizeColor(inspectorTextStyle.color, "#ffffff");
     if (els.overlayNoFillInput) els.overlayNoFillInput.checked = !!overlay.noFill;
     if (els.overlayStrokeColorInput) els.overlayStrokeColorInput.value = normalizeColor(overlay.strokeColor, "#000000");
     if (els.overlayNoStrokeInput) els.overlayNoStrokeInput.checked = !!overlay.noStroke;
     if (els.overlayStrokeWidthInput) els.overlayStrokeWidthInput.value = String(Math.round(Number(overlay.strokeWidth || 0)));
     if (els.overlayStrokeWidthValue) els.overlayStrokeWidthValue.textContent = `${Math.round(Number(overlay.strokeWidth || 0))}px`;
-    if (els.overlayFontWeightInput) els.overlayFontWeightInput.value = String(overlay.fontWeight || "700");
-    refreshFontFamilySelect(String(overlay.fontFamily || "Malgun Gothic"), String(overlay.fontFile || ""));
+    if (els.overlayFontWeightInput) els.overlayFontWeightInput.value = String(inspectorTextStyle.fontWeight || overlay.fontWeight || "700");
+    refreshFontFamilySelect(String(inspectorTextStyle.fontFamily || overlay.fontFamily || "Malgun Gothic"), String(inspectorTextStyle.fontFile || overlay.fontFile || ""));
     if (els.overlayTextAlignInput) els.overlayTextAlignInput.value = String(overlay.textAlign || "center");
   }
 
@@ -5951,7 +6067,16 @@
     };
 
     els.overlayTextInput?.addEventListener("input", () => {
-      updateSelectedOverlay((overlay) => { overlay.text = els.overlayTextInput.value; });
+      updateSelectedOverlay((overlay) => {
+        overlay.text = els.overlayTextInput.value;
+        overlay.richTextRuns = normalizeRichTextRuns(overlay.richTextRuns, overlay.text);
+      });
+    });
+    ["select", "keyup", "mouseup", "focus"].forEach((eventName) => {
+      els.overlayTextInput?.addEventListener(eventName, () => {
+        const overlay = getSelectedOverlayItem();
+        if (overlay?.overlayType === "text") renderOverlayInspector();
+      });
     });
     els.overlayFontSizeInput?.addEventListener("input", () => {
       updateSelectedOverlay((overlay) => { overlay.fontSize = Math.max(18, Number(els.overlayFontSizeInput.value || 64)); });
@@ -6007,7 +6132,10 @@
       updateSelectedOverlay((overlay) => { overlay.y = clamp01(els.overlayPosYInput.value, 0.82); });
     });
     els.overlayColorInput?.addEventListener("input", () => {
-      updateSelectedOverlay((overlay) => { overlay.color = normalizeColor(els.overlayColorInput.value, "#ffffff"); });
+      updateSelectedOverlay((overlay) => {
+        const color = normalizeColor(els.overlayColorInput.value, "#ffffff");
+        if (!applyRichTextSelectionPatch(overlay, { color })) overlay.color = color;
+      });
     });
     els.overlayNoFillInput?.addEventListener("change", () => {
       updateSelectedOverlay((overlay) => { overlay.noFill = !!els.overlayNoFillInput.checked; });
@@ -6022,7 +6150,10 @@
       updateSelectedOverlay((overlay) => { overlay.strokeWidth = Math.max(0, Number(els.overlayStrokeWidthInput.value || 0)); });
     });
     els.overlayFontWeightInput?.addEventListener("change", () => {
-      updateSelectedOverlay((overlay) => { overlay.fontWeight = String(els.overlayFontWeightInput.value || "700"); });
+      updateSelectedOverlay((overlay) => {
+        const fontWeight = String(els.overlayFontWeightInput.value || "700");
+        if (!applyRichTextSelectionPatch(overlay, { fontWeight })) overlay.fontWeight = fontWeight;
+      });
     });
     els.overlayFontFamilyInput?.addEventListener("change", () => {
       const selected = String(els.overlayFontFamilyInput.value || "Malgun Gothic");
@@ -6033,9 +6164,11 @@
       }
       const customFont = getCustomFontByFamily(selected);
       updateSelectedOverlay((overlay) => {
-        overlay.fontFamily = selected;
-        if (customFont?.path) overlay.fontFile = customFont.path;
-        else overlay.fontFile = "";
+        const fontFile = customFont?.path ? customFont.path : "";
+        if (!applyRichTextSelectionPatch(overlay, { fontFamily: selected, fontFile })) {
+          overlay.fontFamily = selected;
+          overlay.fontFile = fontFile;
+        }
       });
     });
     els.overlayTextAlignInput?.addEventListener("change", () => {
@@ -6075,8 +6208,10 @@
       if (!font) return;
       refreshFontFamilySelect(font.family);
       updateSelectedOverlay((overlay) => {
-        overlay.fontFamily = font.family;
-        overlay.fontFile = font.path;
+        if (!applyRichTextSelectionPatch(overlay, { fontFamily: font.family, fontFile: font.path })) {
+          overlay.fontFamily = font.family;
+          overlay.fontFile = font.path;
+        }
       });
       closeCustomFontModal();
       toast("글씨체를 추가했습니다.");
@@ -10458,6 +10593,7 @@
   window.addEventListener("drop", onExternalDrop, true);
   els.dropZone?.addEventListener("drop", onExternalDrop, true);
   els.dropZone?.addEventListener("mousedown", handlePreviewBackgroundSelection);
+  els.dropZone?.addEventListener("dblclick", handlePreviewTextEditRequest, true);
   els.videoLane?.addEventListener("drop", onExternalDrop, true);
   els.audioLane?.addEventListener("drop", onExternalDrop, true);
   document.addEventListener("__pearl_external_drop__", (ev) => {
@@ -12139,7 +12275,12 @@
 
   async function saveProjectInteractive(options = {}) {
     const json = serializePersistenceDocument(true);
-    const res = await window.pearl.saveProject(json, persistenceState.projectFilePath || "");
+    const currentPath = String(persistenceState.projectFilePath || "");
+    const forceDialog = options.forceDialog === true;
+    const canSaveDirect = !forceDialog && currentPath && typeof window.pearl.saveProjectToPath === "function";
+    const res = canSaveDirect
+      ? await window.pearl.saveProjectToPath(json, currentPath)
+      : await window.pearl.saveProject(json, forceDialog ? "" : currentPath);
     if (!res?.ok) return false;
     persistenceState.projectFilePath = String(res.filePath || persistenceState.projectFilePath || "");
     persistenceState.manualSaveSignature = computePersistenceSignature();
@@ -12212,6 +12353,12 @@
   els.btnSave.onclick = async () => {
     await saveProjectInteractive();
   };
+  els.btnSaveAs?.addEventListener("click", async () => {
+    await saveProjectInteractive({ forceDialog: true });
+  });
+  els.btnUndo?.addEventListener("click", undoHistoryAction);
+  els.btnRedo?.addEventListener("click", redoHistoryAction);
+  updateHistoryToolbarState();
 
   els.btnLoad.onclick = async () => {
     const res = await window.pearl.loadProject();
@@ -12254,7 +12401,8 @@
     const renderHints = {
       hasNonAsciiText: renderOverlayItems.some((item) => String(item.overlayType || "text") === "text" && /[^\x00-\x7F]/.test(String(item.text || ""))),
       hasCustomFont: renderOverlayItems.some((item) => String(item.overlayType || "text") === "text" && !!String(item.fontFile || "").trim()),
-      canvasTextFallbackLikely: renderOverlayItems.some((item) => String(item.overlayType || "text") === "text" && (/[\u2600-\u27BF]|\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDEFF]|\uD83E[\uDD00-\uDFFF]/.test(String(item.text || "")) || !!String(item.fontFile || "").trim())),
+      hasRichTextRuns: renderOverlayItems.some((item) => String(item.overlayType || "text") === "text" && normalizeRichTextRuns(item.richTextRuns, item.text || "").length > 0),
+      canvasTextFallbackLikely: renderOverlayItems.some((item) => String(item.overlayType || "text") === "text" && (/[\u2600-\u27BF]|\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDEFF]|\uD83E[\uDD00-\uDFFF]/.test(String(item.text || "")) || !!String(item.fontFile || "").trim() || normalizeRichTextRuns(item.richTextRuns, item.text || "").length > 0)),
       hasSpecialFx: renderOverlayItems.some((item) => String(item.overlayType || "text") !== "text")
     };
 
@@ -12551,8 +12699,8 @@
     }
     if (isEditableShortcutTarget(e.target)) return;
     const ctrl = e.ctrlKey || e.metaKey;
-    if (ctrl && e.code === "KeyZ") { e.preventDefault(); cmdStack.undo(); return; }
-    if (ctrl && e.code === "KeyY") { e.preventDefault(); cmdStack.redo(); return; }
+    if (ctrl && e.code === "KeyZ") { e.preventDefault(); undoHistoryAction(); return; }
+    if (ctrl && e.code === "KeyY") { e.preventDefault(); redoHistoryAction(); return; }
     if (ctrl && e.code === "KeyS") { e.preventDefault(); els.btnSave.click(); return; }
     if (ctrl && e.code === "KeyR") { e.preventDefault(); els.btnRender.click(); return; }
     if (ctrl && e.code === "KeyC") { e.preventDefault(); copySelectedItems(); return; }
@@ -12614,6 +12762,7 @@
     setupRangeVisuals();
     loadPalettePreviewImage();
     updateZoomValue();
+    window.PearlSettings?.init?.();
     const ok = await ensureTermsAccepted();
     if (!ok) return;
     try {
@@ -12623,7 +12772,6 @@
       });
     } catch {}
     els.btnTheme?.addEventListener("click", cycleThemePreference);
-    window.PearlSettings?.init?.();
     detachedAudioSession = createDetachedAudioPreviewSession({
       fileUrl,
       debug: () => !!getDebugFlags().preview

@@ -1,15 +1,16 @@
 {
   "name": "video-smith",
   "productName": "VideoS",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Grey-pearl offline video editor prototype (Electron + FFmpeg)",
   "main": "main.js",
   "author": "",
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "scripts": {
     "start": "electron .",
     "test": "node tests/render_regression.test.js",
+    "notices": "node scripts/generate-third-party-notices.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },

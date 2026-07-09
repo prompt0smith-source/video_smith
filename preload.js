@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("pearl", {
   createBackgroundColorClip: (payload) => ipcRenderer.invoke("create-background-color-clip", payload),
   probeMediaDurations: (paths) => ipcRenderer.invoke("probe-media-durations", paths),
   saveProject: (projectJson, preferredPath = "") => ipcRenderer.invoke("save-project", projectJson, preferredPath),
+  saveProjectToPath: (projectJson, filePath) => ipcRenderer.invoke("save-project-to-path", projectJson, filePath),
   loadProject: () => ipcRenderer.invoke("load-project"),
   saveAutosaveCache: (payload) => ipcRenderer.invoke("save-autosave-cache", payload),
   loadAutosaveCache: () => ipcRenderer.invoke("load-autosave-cache"),

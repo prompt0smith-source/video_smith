@@ -505,25 +505,112 @@ test("visible app branding uses VideoS while VideoSmith project identity stays i
   const mainSource = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
   const htmlSource = fs.readFileSync(path.join(repoRoot, "renderer", "index.html"), "utf8");
   const cssSource = fs.readFileSync(path.join(repoRoot, "renderer", "styles.css"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(repoRoot, "preload.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
+  const commandsSource = fs.readFileSync(path.join(repoRoot, "renderer", "commands.js"), "utf8");
 
   assert.equal(pkg.productName, "VideoS");
   assert.equal(pkg.build.productName, "VideoS");
   assert.equal(pkg.build.nsis.shortcutName, "VideoS");
   assert.match(mainSource, /app\.setName\("VideoS"\)/);
+  assert.match(mainSource, /app\.setAppUserModelId\("com\.videosmith\.app"\)/);
   assert.match(mainSource, /title: "VideoS"/);
   assert.match(mainSource, /path\.join\(__dirname, "Icon\.ico"\)/);
+  assert.match(mainSource, /electronNativeImage\.createFromPath\(appIconPath\)/);
+  assert.match(mainSource, /icon: appIcon/);
   assert.match(htmlSource, /<title>VideoS<\/title>/);
   assert.match(htmlSource, /class="brandLogo"/);
   assert.match(htmlSource, /src="\.\/assets\/videosmith_logo\.png"/);
   assert.match(htmlSource, /<span class="brandName">VideoS<\/span>/);
+  assert.match(htmlSource, /class="topbarToolbar"/);
+  for (const id of ["btnUpload", "btnSave", "btnSaveAs", "btnLoad", "btnRender", "btnUndo", "btnRedo", "btnTheme", "btnSettings"]) {
+    assert.equal((htmlSource.match(new RegExp(`id="${id}"`, "g")) || []).length, 1, `${id} should be unique`);
+  }
+  assert.match(appSource, /btnSaveAs:\s*\$\("btnSaveAs"\)/);
+  assert.match(appSource, /saveProjectToPath\(json, currentPath\)/);
+  assert.match(appSource, /function undoHistoryAction\(\)/);
+  assert.match(appSource, /function redoHistoryAction\(\)/);
+  assert.match(commandsSource, /this\.onChange = null/);
+  assert.match(commandsSource, /notifyChange\(\)/);
+  assert.match(preloadSource, /saveProjectToPath: \(projectJson, filePath\) => ipcRenderer\.invoke\("save-project-to-path"/);
+  assert.match(mainSource, /ipcMain\.handle\("save-project-to-path"/);
   assert.match(cssSource, /\.brandMark/);
   assert.match(cssSource, /--brand-tile-bg/);
+  assert.match(cssSource, /\.toolbarIconBtn/);
+  assert.match(cssSource, /border:1px solid transparent !important/);
+  assert.match(cssSource, /--topbar-tool-hover-border/);
   assert.match(cssSource, /object-fit:cover/);
   assert.match(mainSource, /filters: \[\{ name: "VideoSmith Project"/);
 
   assert.deepEqual(readPngSize(path.join(repoRoot, "Icon.png")), { width: 1024, height: 1024 });
   assert.deepEqual(readPngSize(path.join(repoRoot, "renderer", "assets", "videosmith_logo.png")), { width: 1024, height: 1024 });
   assert.ok(fs.statSync(path.join(repoRoot, "Icon.ico")).size > 0);
+});
+
+test("repository legal notices and in-app legal UI stay wired", () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+  const lock = JSON.parse(fs.readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));
+  const htmlSource = fs.readFileSync(path.join(repoRoot, "renderer", "index.html"), "utf8");
+  const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
+  const settingsSource = fs.readFileSync(path.join(repoRoot, "renderer", "settings.js"), "utf8");
+  const koSource = fs.readFileSync(path.join(repoRoot, "renderer", "i18n", "ko.js"), "utf8");
+  const enSource = fs.readFileSync(path.join(repoRoot, "renderer", "i18n", "en.js"), "utf8");
+  const scriptSource = fs.readFileSync(path.join(repoRoot, "scripts", "generate-third-party-notices.js"), "utf8");
+  const readme = fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
+  const license = fs.readFileSync(path.join(repoRoot, "LICENSE"), "utf8");
+
+  assert.equal(pkg.license, "GPL-3.0-or-later");
+  assert.equal(lock.packages[""].license, "GPL-3.0-or-later");
+  assert.equal(pkg.scripts.notices, "node scripts/generate-third-party-notices.js");
+  assert.match(license, /^SPDX-License-Identifier: GPL-3\.0-or-later/);
+  assert.match(license, /GNU GENERAL PUBLIC LICENSE/);
+
+  const docs = [
+    "THIRD_PARTY_NOTICES.md",
+    "OPEN_SOURCE_LICENSES.md",
+    "FFMPEG_NOTICE.md",
+    "TERMS_OF_USE.md",
+    "PRIVACY_POLICY.md",
+    "USER_CONTENT_NOTICE.md",
+    "NOTICE.md",
+    "THIRD_PARTY_NOTICES.generated.md"
+  ];
+  docs.forEach((doc) => assert.ok(fs.existsSync(path.join(repoRoot, doc)), `${doc} should exist`));
+
+  const thirdParty = fs.readFileSync(path.join(repoRoot, "THIRD_PARTY_NOTICES.md"), "utf8");
+  const ffmpegNotice = fs.readFileSync(path.join(repoRoot, "FFMPEG_NOTICE.md"), "utf8");
+  const privacy = fs.readFileSync(path.join(repoRoot, "PRIVACY_POLICY.md"), "utf8");
+  const userContent = fs.readFileSync(path.join(repoRoot, "USER_CONTENT_NOTICE.md"), "utf8");
+  const generated = fs.readFileSync(path.join(repoRoot, "THIRD_PARTY_NOTICES.generated.md"), "utf8");
+
+  assert.match(thirdParty, /VideoSmith does not claim ownership of third-party components/);
+  assert.match(ffmpegNotice, /license terms of FFmpeg\/FFprobe depend on the exact binary/);
+  assert.match(privacy, /does not upload the user's video, audio, image, subtitle, font, or project files/);
+  assert.match(userContent, /does not claim ownership of output created by users/);
+  assert.match(generated, /\| ffmpeg-static \| 5\.3\.0 \| GPL-3\.0-or-later/);
+
+  for (const id of ["btnLegalNotice", "btnOpenSourceLicenses", "btnThirdPartyNotices", "btnFfmpegNotice", "btnPrivacyPolicy", "btnUserContentNotice"]) {
+    assert.equal((htmlSource.match(new RegExp(`id="${id}"`, "g")) || []).length, 1, `${id} should be unique`);
+  }
+  assert.match(htmlSource, /data-legal-doc="legal"/);
+  assert.match(htmlSource, /data-legal-doc="openSource"/);
+  assert.match(htmlSource, /data-legal-doc="ffmpeg"/);
+  assert.match(htmlSource, /data-i18n-html="legalNoticeBody"/);
+  assert.match(appSource, /const LEGAL_NOTICE_VERSION = "2026\.07\.09"/);
+  assert.match(appSource, /const LEGAL_NOTICE_ACCEPT_KEY = "videosmith\.legalNoticeAcceptedVersion"/);
+  assert.match(appSource, /localStorage\.setItem\(LEGAL_NOTICE_ACCEPT_KEY, LEGAL_NOTICE_VERSION\)/);
+  assert.match(appSource, /showLegalNoticeModal\?\.\("legal"\)/);
+  assert.match(settingsSource, /const LEGAL_DOCS = \{/);
+  assert.match(settingsSource, /function showLegalNoticeModal\(docKey = "legal"\)/);
+  assert.match(settingsSource, /document\.querySelectorAll\("\[data-legal-doc\]"\)/);
+  assert.match(koSource, /legalNoticePanelBody/);
+  assert.match(enSource, /openSourceLicensesBody/);
+
+  assert.match(scriptSource, /package-lock\.json was not found or could not be parsed/);
+  assert.match(scriptSource, /node_modules was not found/);
+  assert.match(scriptSource, /license is UNKNOWN and needs manual verification/);
+  assert.match(readme, /VideoSmith is released under GPL-3\.0-or-later/);
+  assert.match(readme, /See THIRD_PARTY_NOTICES\.md and FFMPEG_NOTICE\.md/);
 });
 
 test("VideoSmith project files, preview resize, and compact timeline controls stay wired", () => {
@@ -542,6 +629,12 @@ test("VideoSmith project files, preview resize, and compact timeline controls st
   assert.match(mainSource, /zlib\.gunzipSync/);
   assert.match(mainSource, /extensions: \[VIDEOSMITH_PROJECT_EXT\]/);
   assert.match(mainSource, /defaultPath,\s*[\r\n]\s*filters: \[\{ name: "VideoSmith Project"/);
+  assert.match(koSource, /FFmpeg 공식 legal 문서/);
+  assert.match(koSource, /nonfree 옵션/);
+  assert.match(koSource, /작업표시줄, 시작 메뉴, 창 제목/);
+  assert.match(enSource, /official FFmpeg legal page/);
+  assert.match(enSource, /nonfree options may have redistribution limits/);
+  assert.match(enSource, /window title, taskbar, Start menu/);
 
   assert.match(appSource, /function initPreviewResizeObserver/);
   assert.match(appSource, /new ResizeObserver/);
@@ -803,7 +896,9 @@ test("render preflight, textfile drawtext, canvas text fallback, and preview she
   assert.match(renderWindowSource, /preflight_canvas_text: "안전한 텍스트 렌더링으로 전환 중"/);
   assert.match(renderWindowSource, /render_watchdog_timeout: "응답 없음 감지, 렌더 프로세스 중단"/);
   assert.match(cssSource, /--preview-stage-bg:#f5f7fa/);
-  assert.match(cssSource, /--preview-monitor-bg:#0b0f14/);
+  assert.match(cssSource, /--preview-monitor-bg:#e7edf5/);
+  assert.match(cssSource, /--project-preview-bg:#e7edf5/);
+  assert.match(cssSource, /body\[data-theme="light"\] \.timelineViewport::-webkit-scrollbar-track/);
   assert.match(cssSource, /#panelRight\{[\s\S]*background:var\(--preview-shell-bg\)/);
   assert.match(appSource, /renderHints/);
   assert.match(appSource, /hasNonAsciiText/);
@@ -1190,4 +1285,58 @@ test("render window syncs aspect ratio setting changes", async () => {
   await ui.elements.get("rwAspect").onchange();
   const updateCall = ui.calls.find(([action]) => action === "update-settings");
   assert.equal(updateCall?.[1]?.settings?.aspectRatio, "20:9");
+});
+
+test("app version metadata is promoted to 1.0.0", () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+  const lock = JSON.parse(fs.readFileSync(path.join(repoRoot, "package-lock.json"), "utf8"));
+  assert.equal(pkg.version, "1.0.0");
+  assert.equal(lock.version, "1.0.0");
+  assert.equal(lock.packages[""].version, "1.0.0");
+});
+
+test("ffmpeg spawn guard tolerates missing stdout/stderr rings", () => {
+  const mainSource = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
+  assert.match(mainSource, /Object\.defineProperties\(result,\s*\{[\s\S]*get:\s*\{[\s\S]*value\(name\)/);
+  assert.match(mainSource, /has:\s*\{[\s\S]*value\(name\)[\s\S]*return !!findKey\(name\)/);
+  assert.match(mainSource, /const normalizeRing = \(ring\) => \(/);
+  assert.match(mainSource, /originalEndCB\.call\(this, err, normalizeRing\(stdoutRing\), normalizeRing\(stderrRing\)\)/);
+});
+
+test("subtitle rich text selection styling is preserved through preview and render fallback", () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
+  const overlaySource = fs.readFileSync(path.join(repoRoot, "renderer", "overlay_engine.js"), "utf8");
+  const mainSource = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
+  const styles = fs.readFileSync(path.join(repoRoot, "renderer", "styles.css"), "utf8");
+
+  assert.match(appSource, /function normalizeRichTextRuns/);
+  assert.match(appSource, /function applyRichTextSelectionPatch/);
+  assert.match(appSource, /handlePreviewTextEditRequest/);
+  assert.match(appSource, /hasRichTextRuns:/);
+  assert.match(overlaySource, /function renderRichTextContent/);
+  assert.match(overlaySource, /function buildRichCanvasLines/);
+  assert.match(mainSource, /function hasRichTextRuns/);
+  assert.match(mainSource, /_renderTextReason:\s*"rich_text_runs"/);
+  assert.match(styles, /#overlayTextInput::selection/);
+
+  const api = loadMainHarness();
+  const sanitized = api.sanitizeRenderProjectForFfmpeg({
+    videoClips: [],
+    audioItems: [],
+    overlayItems: [{
+      id: "text-rich",
+      overlayType: "text",
+      text: "안녕하세요",
+      richTextRuns: [{ start: 1, end: 3, color: "#2563eb", fontFamily: "Arial" }]
+    }]
+  }, { w: 1920, h: 1080, fps: 30 });
+  assert.equal(sanitized.project.overlayItems[0].richTextRuns.length, 1);
+  assertPlainObject(sanitized.project.overlayItems[0].richTextRuns[0], {
+    start: 1,
+    end: 3,
+    color: "#2563eb",
+    fontFamily: "Arial",
+    fontFile: "",
+    fontWeight: ""
+  });
 });

@@ -10,23 +10,49 @@
 <body>
   <div id="app">
     <header id="topbar">
-      <div class="brand" aria-label="VideoS">
-        <span class="brandMark" aria-hidden="true">
-          <img src="./assets/videosmith_logo.png" alt="" class="brandLogo" />
-        </span>
-        <span class="brandName">VideoS</span>
+      <div class="topbarLeft">
+        <div class="brand" aria-label="VideoS">
+          <span class="brandMark" aria-hidden="true">
+            <img src="./assets/videosmith_logo.png" alt="" class="brandLogo" />
+          </span>
+          <span class="brandName">VideoS</span>
+        </div>
+        <nav class="topbarToolbar" aria-label="빠른 실행">
+          <button id="btnUpload" class="toolbarIconBtn" type="button" title="파일 업로드" data-i18n-title="titleUploadProject" aria-label="파일 업로드">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/></svg>
+          </button>
+          <button id="btnSave" class="toolbarIconBtn" type="button" title="프로젝트 저장" data-i18n-title="titleSaveProject" aria-label="프로젝트 저장">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z"/><path d="M8 4v6h8V4"/><path d="M8 20v-6h8v6"/></svg>
+          </button>
+          <button id="btnSaveAs" class="toolbarIconBtn" type="button" title="다른 이름으로 저장" data-i18n-title="titleSaveProjectAs" aria-label="다른 이름으로 저장">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h12l2 2v14H5z"/><path d="M8 4v6h8V4"/><path d="M8 20v-6h5"/><path d="M18 13v6"/><path d="M15 16h6"/></svg>
+          </button>
+          <button id="btnLoad" class="toolbarIconBtn" type="button" title="프로젝트 불러오기" data-i18n-title="titleLoadProject" aria-label="프로젝트 불러오기">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h7l2 2h7v10H4z"/><path d="M12 17v-6"/><path d="M9 14l3 3 3-3"/></svg>
+          </button>
+          <span class="toolbarDivider" aria-hidden="true"></span>
+          <button id="btnUndo" class="toolbarIconBtn" type="button" title="되돌리기" data-i18n-title="titleUndo" aria-label="되돌리기">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7H5v4"/><path d="M5 11c2.2-3.5 5.1-5 8.2-4.4 3.8.7 5.8 3.5 5.8 6.4 0 3.1-2.4 5.6-6.2 5.6H9"/></svg>
+          </button>
+          <button id="btnRedo" class="toolbarIconBtn" type="button" title="다시 실행" data-i18n-title="titleRedo" aria-label="다시 실행">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 7h4v4"/><path d="M19 11c-2.2-3.5-5.1-5-8.2-4.4C7 7.3 5 10.1 5 13c0 3.1 2.4 5.6 6.2 5.6H15"/></svg>
+          </button>
+          <span class="toolbarDivider" aria-hidden="true"></span>
+          <button id="btnRender" class="toolbarIconBtn toolbarIconBtnRender" type="button" title="렌더 시작" data-i18n-title="titleRenderProject" aria-label="렌더 시작">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14l11-7z"/></svg>
+          </button>
+          <button id="btnTheme" class="toolbarIconBtn themeBtn" type="button" title="Theme" aria-label="Theme">
+            <span class="themeBtnSun" aria-hidden="true">◐</span>
+          </button>
+          <button id="btnSettings" class="toolbarIconBtn gearBtn" type="button" title="Settings" data-i18n-title="titleSettings" aria-label="Settings">
+            <svg id="gearIcon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/>
+              <path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.03.03a2.1 2.1 0 0 1-2.97 2.97l-.03-.03a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.08 1.65V21.3a2.1 2.1 0 0 1-4.2 0v-.06a1.8 1.8 0 0 0-1.08-1.65 1.8 1.8 0 0 0-1.98.36l-.03.03a2.1 2.1 0 0 1-2.97-2.97l.03-.03A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.08H2.9a2.1 2.1 0 0 1 0-4.2h.06A1.8 1.8 0 0 0 4.6 8.64a1.8 1.8 0 0 0-.36-1.98l-.03-.03a2.1 2.1 0 0 1 2.97-2.97l.03.03a1.8 1.8 0 0 0 1.98.36A1.8 1.8 0 0 0 10.27 2.4v-.06a2.1 2.1 0 0 1 4.2 0v.06a1.8 1.8 0 0 0 1.08 1.65 1.8 1.8 0 0 0 1.98-.36l.03-.03a2.1 2.1 0 0 1 2.97 2.97l-.03.03a1.8 1.8 0 0 0-.36 1.98 1.8 1.8 0 0 0 1.65 1.08h.06a2.1 2.1 0 0 1 0 4.2h-.06A1.8 1.8 0 0 0 19.4 15Z"/>
+            </svg>
+          </button>
+        </nav>
       </div>
-      <div class="top-actions">
-        <button id="btnTheme" class="themeBtn" title="Theme" aria-label="Theme">
-          <span class="themeBtnSun" aria-hidden="true">◐</span>
-        </button>
-        <button id="btnSettings" class="gearBtn" title="Settings" aria-label="Settings">
-          <svg id="gearIcon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/>
-            <path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.03.03a2.1 2.1 0 0 1-2.97 2.97l-.03-.03a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.08 1.65V21.3a2.1 2.1 0 0 1-4.2 0v-.06a1.8 1.8 0 0 0-1.08-1.65 1.8 1.8 0 0 0-1.98.36l-.03.03a2.1 2.1 0 0 1-2.97-2.97l.03-.03A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.08H2.9a2.1 2.1 0 0 1 0-4.2h.06A1.8 1.8 0 0 0 4.6 8.64a1.8 1.8 0 0 0-.36-1.98l-.03-.03a2.1 2.1 0 0 1 2.97-2.97l.03.03a1.8 1.8 0 0 0 1.98.36A1.8 1.8 0 0 0 10.27 2.4v-.06a2.1 2.1 0 0 1 4.2 0v.06a1.8 1.8 0 0 0 1.08 1.65 1.8 1.8 0 0 0 1.98-.36l.03-.03a2.1 2.1 0 0 1 2.97 2.97l-.03.03a1.8 1.8 0 0 0-.36 1.98 1.8 1.8 0 0 0 1.65 1.08h.06a2.1 2.1 0 0 1 0 4.2h-.06A1.8 1.8 0 0 0 19.4 15Z"/>
-          </svg>
-        </button>
-      </div>
+      <div class="top-actions"></div>
     </header>
 
     <main id="layout">
@@ -431,7 +457,7 @@
           <video id="video" controlslist="nodownload" preload="metadata"></video>
           <div id="dropHint" class="dropHint">
             하단 타임라인에 동영상/오디오 파일을 드래그 & 드롭<br/>
-            (또는 상단 세팅 내부 파일 업로드 버튼)
+            (또는 좌측 상단 파일 업로드 버튼)
           </div>
         </div>
 
@@ -623,31 +649,19 @@
     </div>
   </div>
 
-  <div id="termsModal" class="modal termsModal hidden">
+  <div id="termsModal" class="modal termsModal legalNoticeModal hidden">
     <div class="modalCard termsCard">
-      <div class="modalTitle" data-i18n="termsTitle">소프트웨어 이용 약관</div>
-      <div class="modalBody termsBody">
-        <p>시행일: 2026-02-16</p>
-        <p>본 약관은 본 소프트웨어(이하 "프로그램")의 설치, 실행, 사용과 관련하여 사용자(이하 "이용자")와 제공자(이하 "제공자") 간의 권리·의무 및 책임사항을 규정합니다.</p>
-        <p><b>1. 동의 및 효력</b><br/>이용자가 "동의" 버튼을 클릭하거나 프로그램을 설치/실행/사용하는 경우, 이용자는 본 약관에 동의한 것으로 봅니다.<br/>이용자가 본 약관에 동의하지 않는 경우, 프로그램을 설치/사용할 수 없습니다.</p>
-        <p><b>2. 라이선스 범위(사용 허락)</b><br/>제공자는 이용자에게 비독점적, 양도 불가, 재라이선스 불가의 방식으로 프로그램을 설치 및 사용할 수 있는 권리를 부여합니다.<br/>이용자는 개인/업무 목적 범위에서 프로그램을 사용할 수 있습니다(별도 계약이 없는 한).</p>
-        <p><b>3. 금지 행위</b><br/>프로그램의 무단 복제, 재배포, 판매, 대여, 임대, 공유 / 수정, 변형, 역설계, 디컴파일, 디스어셈블(법 허용 최소 범위 제외) / 라이선스·동의 절차·보안 기능·제한 기능 우회 또는 무력화 / 불법 목적 사용 / 명칭·로고·저작권 표시 제거 또는 변경.<br/>단, 제3자 오픈소스 구성요소에 대해서는 해당 라이선스가 허용하는 사용, 복제, 수정, 역설계, 재배포 권리를 제한하지 않습니다.</p>
-        <p><b>4. 파일 처리 및 콘텐츠 책임</b><br/>프로그램에서 불러오거나 내보내는 모든 콘텐츠의 권리 및 법적 책임은 이용자에게 있습니다.<br/>이용자는 관련 법령 준수를 보장합니다.<br/>제공자는 이용자 콘텐츠의 소유권을 주장하지 않습니다.</p>
-        <p><b>5. 변환(인코딩) 및 품질 제한</b><br/>내부 편집/렌더링을 위해 자동 변환(트랜스코딩)할 수 있습니다.<br/>성능/호환을 위해 최대 4K, 최대 60fps 등 제한이 있을 수 있으며 초과 파일은 자동 변환 또는 제한 범위 설정으로 처리될 수 있습니다.<br/>자동 변환 과정의 품질 변화는 정상 동작 범위로 봅니다.</p>
-        <p><b>6. 업데이트 및 기능 변경</b><br/>제공자는 오류 수정, 성능 개선, 보안 패치, 기능 변경을 위해 업데이트를 제공할 수 있으며 이에 따라 일부 기능이 변경/제한될 수 있습니다.</p>
-        <p><b>7. 개인정보 및 데이터</b><br/>오프라인 중심 동작이더라도 로컬 임시 파일/캐시가 생성될 수 있습니다.<br/>별도 고지 없이는 이용자 미디어 파일을 외부 서버로 업로드하지 않습니다.<br/>로컬 생성 파일의 보관/삭제 책임은 이용자에게 있습니다.</p>
-        <p><b>8. 제3자 구성요소(오픈소스 포함)</b><br/>본 프로그램에는 FFmpeg/FFprobe 등 제3자 라이브러리, 실행 파일, 코덱, 오픈소스 구성요소가 포함되거나 실행될 수 있으며 해당 구성요소는 각 저작권자에게 귀속되고 각 라이선스 조건(GPL/LGPL/MIT 등)이 우선 적용됩니다.<br/>제공자는 해당 제3자 구성요소에 대한 소유권을 주장하지 않으며, 자세한 고지는 설정의 "오픈소스 고지"에서 확인할 수 있습니다.</p>
-        <p><b>9. 보증의 부인</b><br/>프로그램은 "있는 그대로(AS IS)" 제공되며 무중단, 무오류, 특정 목적 적합성 등을 보증하지 않습니다.</p>
-        <p><b>10. 책임의 제한</b><br/>법이 허용하는 한도 내에서 직접/간접/특별/부수/결과적 손해에 대해 책임지지 않습니다.<br/>총 책임은 유료 제공 시 실제 지급 금액, 무료 제공 시 0원으로 제한됩니다.</p>
-        <p><b>11. 계약 해지(이용 종료)</b><br/>약관 위반 시 이용 중단/라이선스 종료가 가능하며, 이용자는 프로그램 삭제로 종료할 수 있습니다.</p>
-        <p><b>12. 준거법 및 분쟁</b><br/>대한민국 법령을 준거법으로 하며 관할 법원은 관련 법령에 따릅니다.</p>
-        <p><b>13. 문의</b><br/>prompt0smith@gmail.com</p>
+      <div class="modalTitle" data-i18n="legalNoticeTitle">VideoSmith 고지 확인</div>
+      <div class="modalBody termsBody" data-i18n-html="legalNoticeBody">
+        <p>VideoSmith는 오픈소스로 공개된 개인 포트폴리오 영상 편집 도구입니다.</p>
+        <p>본 프로그램은 오픈소스 및 제3자 구성요소를 사용하며, 사용자가 불러온 콘텐츠의 권리 확인 책임은 사용자에게 있습니다.</p>
+        <p>자세한 내용은 설정 &gt; 법적 고지에서 언제든지 확인할 수 있습니다.</p>
       </div>
       <div class="modalActions termsActions">
-        <label class="termsCheck"><input id="termsAgreeCheck" type="checkbox" /> <span data-i18n="termsAgreeText">[필수] 위 "소프트웨어 이용 약관"을 읽었으며, 내용에 동의합니다.</span></label>
+        <label class="termsCheck hidden"><input id="termsAgreeCheck" type="checkbox" /> <span data-i18n="termsAgreeText">고지 확인</span></label>
         <div class="termsButtons">
-          <button id="btnTermsAccept" class="btn primary" data-i18n="btnTermsAccept" disabled>동의하고 시작하기</button>
-          <button id="btnTermsDecline" class="btn" data-i18n="btnTermsDecline">동의하지 않음(종료)</button>
+          <button id="btnTermsDecline" class="btn" data-i18n="btnLegalNoticeView">고지 보기</button>
+          <button id="btnTermsAccept" class="btn primary" data-i18n="btnLegalNoticeAccept">확인했습니다</button>
         </div>
       </div>
     </div>
@@ -670,17 +684,17 @@
       </div>
       <div class="settingsGroup projectActionsGroup">
         <div class="settingsGroupTitle">Project Actions</div>
-        <div class="settingsActionGrid">
-          <button id="btnUpload" class="btn" data-i18n="btnUpload">파일 업로드</button>
-          <button id="btnSave" class="btn" data-i18n="btnSave">프로젝트 저장</button>
-          <button id="btnLoad" class="btn" data-i18n="btnLoad">프로젝트 불러오기</button>
-          <button id="btnRender" class="btn primary" data-i18n="btnRender">렌더 시작</button>
-        </div>
+        <div class="hint topbarActionHint">업로드, 저장, 불러오기, 되돌리기, 렌더는 좌측 상단 빠른 실행 버튼에서 실행합니다.</div>
       </div>
       <div class="settingsGroup legalGroup">
         <div class="settingsGroupTitle" data-i18n="settingsLegalTitle">Legal</div>
         <div class="legalNoticeStack">
-          <button id="btnThirdPartyNotices" class="btn legalNoticeBtn" type="button" data-i18n="btnThirdPartyNotices">오픈소스 고지</button>
+          <button id="btnLegalNotice" class="btn legalNoticeBtn" type="button" data-legal-doc="legal" data-i18n="btnLegalNotice">법적 고지 보기</button>
+          <button id="btnOpenSourceLicenses" class="btn legalNoticeBtn" type="button" data-legal-doc="openSource" data-i18n="btnOpenSourceLicenses">오픈소스 라이선스 보기</button>
+          <button id="btnThirdPartyNotices" class="btn legalNoticeBtn" type="button" data-legal-doc="thirdParty" data-i18n="btnThirdPartyNotices">제3자 구성요소 보기</button>
+          <button id="btnFfmpegNotice" class="btn legalNoticeBtn" type="button" data-legal-doc="ffmpeg" data-i18n="btnFfmpegNotice">FFmpeg 고지 보기</button>
+          <button id="btnPrivacyPolicy" class="btn legalNoticeBtn" type="button" data-legal-doc="privacy" data-i18n="btnPrivacyPolicy">개인정보 처리방침 보기</button>
+          <button id="btnUserContentNotice" class="btn legalNoticeBtn" type="button" data-legal-doc="userContent" data-i18n="btnUserContentNotice">사용자 콘텐츠 안내 보기</button>
           <div class="hint" data-i18n="thirdPartyNoticesHint">FFmpeg 및 제3자 구성요소의 라이선스 정보를 확인합니다.</div>
         </div>
       </div>
