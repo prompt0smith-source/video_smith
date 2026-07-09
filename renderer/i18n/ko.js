@@ -28,7 +28,7 @@
     sectionRender: "렌더 설정",
     sectionClips: "클립 목록",
     hintTransitions: "타임라인에서 클립 경계로 드래그하면 근처에서 자동 스냅됩니다.",
-    hintBackgroundClip: "타임라인 비디오 섹션으로 드래그하면 5초 배경 클립이 생성됩니다.",
+    hintBackgroundClip: "타임라인 비디오 섹션으로 드래그하거나 버튼을 누르면 5초 배경 클립이 생성됩니다.",
     hintText: "영상 영역으로 드래그하면 실제 텍스트 overlay clip이 생성됩니다.",
     labelFps: "프레임",
     labelRes: "해상도",
@@ -41,6 +41,8 @@
     labelRegion: "영역 지정 모드",
     regionOn: "영역 지정 On",
     regionOff: "영역 지정 Off",
+    regionToggleEnable: "영역 지정 켜기",
+    regionToggleDisable: "영역 지정 끄기",
     emptyClips: "아직 업로드된 파일이 없습니다.",
     dropHint1: "하단 타임라인에 동영상/오디오 파일을 드래그 & 드롭",
     dropHint2: "(또는 좌측 상단 파일 업로드 버튼)",
@@ -141,10 +143,10 @@
       <section class="noticeSection">
         <h4>공식 문서 기준 고지</h4>
         <ul>
-          <li><b>Electron</b>: Electron 공식 문서는 Electron이 MIT 라이선스이며 상업적/개인적 사용이 가능하다고 안내합니다. 다만 Electron이 포함하는 Chromium, Node.js 및 관련 구성요소의 고지는 별도로 유지해야 합니다.</li>
+          <li><b>Electron</b>: Electron은 MIT 라이선스로 제공됩니다. 다만 Electron이 포함하는 Chromium, Node.js 및 관련 구성요소의 고지는 별도로 유지해야 합니다.</li>
           <li><b>MIT 계열 패키지</b>: SPDX MIT 라이선스 전문 기준으로 저작권 고지와 허가 고지는 복제본 또는 주요 부분에 포함되어야 합니다. MIT 패키지를 쓰더라도 고지 삭제는 하지 않습니다.</li>
           <li><b>표시명</b>: 작업표시줄, 시작 메뉴, 창 제목 등 사용자에게 보이는 앱 이름은 VideoS입니다. 약관과 프로젝트 파일 필터의 Video Smith/VideoSmith 표기는 같은 제품의 법적·프로젝트 식별명입니다.</li>
-          <li><b>사용자 콘텐츠와 폰트</b>: 사용자가 불러온 영상, 이미지, 오디오, 자막, 폰트 파일의 사용 권한과 상업적 이용 가능 여부는 사용자가 확인해야 합니다. 앱은 해당 외부 콘텐츠의 권리를 보장하지 않습니다.</li>
+          <li><b>사용자 콘텐츠와 폰트</b>: 사용자가 불러온 영상, 이미지, 오디오, 자막, 폰트 파일의 사용 권한과 공개, 렌더링, 재배포 가능 범위는 사용자가 확인해야 합니다. 앱은 해당 외부 콘텐츠의 권리를 보장하지 않습니다.</li>
           <li>참고 공식 출처: ffmpeg.org/legal.html, github.com/FFmpeg/FFmpeg LICENSE.md, electronjs.org/docs/latest/why-electron, spdx.org/licenses/MIT</li>
         </ul>
       </section>
@@ -176,6 +178,7 @@
     genericClip: "클립",
     backgroundClipCardName: "배경 클립",
     backgroundClipCardDesc: "드래그하면 5초 배경 클립이 추가됩니다.",
+    btnBackgroundClipInsert: "타임라인에 추가",
     backgroundClipDefaultName: "배경",
     backgroundClipApplied: "배경 클립이 추가되었습니다.",
     backgroundClipCreateFailed: "배경 클립 생성 실패",
@@ -273,6 +276,7 @@
     transitionEasingGentle: "부드럽게",
     transitionPopoverRemoveBoundary: "컷으로 변경",
     transitionPopoverRemoveEdge: "전환 제거",
+    transitionDeleted: "전환효과를 삭제했습니다.",
     transitionDropInvalid: "전환효과는 클립 경계 또는 시작/끝 edge에 넣을 수 있어요.",
     transitionApplied: "전환효과 적용 완료"
   };

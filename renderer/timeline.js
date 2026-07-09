@@ -295,6 +295,7 @@
     const total = Math.max(opts.viewDuration || 0, project.duration || 0);
     const activeLane = opts.activeLane || null;
     const selectedKeys = new Set(opts.selectedKeys || []);
+    const selectedTransitionId = String(opts.selectedTransitionId || "");
     const videoSections = Math.max(1, Number(opts.videoSections || 1));
     const audioSections = Math.max(1, Number(opts.audioSections || 1));
     videoLane.classList.toggle("activeEdit", activeLane === "video");
@@ -394,6 +395,7 @@
         chip.dataset.transitionType = type;
         chip.dataset.transitionScope = "boundary";
         chip.dataset.transitionKey = storageKey || String(boundaryIdx);
+        if (selectedTransitionId && chip.dataset.transitionKey === selectedTransitionId) chip.classList.add("isSelected");
         chip.textContent = transitionName(type);
         return chip;
       }
@@ -409,6 +411,7 @@
       surface.dataset.transitionTargetKind = scope && scope !== "boundary" ? "edge" : "boundary";
       if (boundaryIdx != null) surface.dataset.boundaryIdx = String(boundaryIdx);
       if (clipId) surface.dataset.clipId = String(clipId);
+      if (selectedTransitionId && surface.dataset.transitionKey === selectedTransitionId) surface.classList.add("isSelected");
       surface.title = `${transitionName(type)} · ${format1(durationSec)}s`;
 
       const appendDurationHandle = (edge) => {

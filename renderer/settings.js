@@ -68,6 +68,11 @@
     const body = document.querySelector("#thirdPartyModal .thirdPartyBody");
     if (title) title.textContent = d[spec.title] || d.thirdPartyNoticesTitle || "Notices";
     if (body) body.innerHTML = d[spec.body] || d.thirdPartyNoticesBody || "";
+    document.querySelectorAll("[data-legal-doc]").forEach((button) => {
+      const active = button.dataset.legalDoc === activeLegalDoc;
+      button.classList.toggle("active", active);
+      if (button.getAttribute("role") === "tab") button.setAttribute("aria-selected", active ? "true" : "false");
+    });
   }
 
   function toggleThirdPartyNotices(open, docKey = activeLegalDoc) {
@@ -93,6 +98,22 @@
 
   function showLegalNoticeModal(docKey = "legal") {
     toggleThirdPartyNotices(true, docKey);
+  }
+
+  function showOpenSourceNoticeModal() {
+    showLegalNoticeModal("openSource");
+  }
+
+  function showThirdPartyNoticesModal() {
+    showLegalNoticeModal("thirdParty");
+  }
+
+  function showPrivacyPolicyModal() {
+    showLegalNoticeModal("privacy");
+  }
+
+  function showUserContentNoticeModal() {
+    showLegalNoticeModal("userContent");
   }
 
   function applyLanguage(lang) {
@@ -186,6 +207,10 @@
     toggleSettings,
     toggleThirdPartyNotices,
     showLegalNoticeModal,
+    showOpenSourceNoticeModal,
+    showThirdPartyNoticesModal,
+    showPrivacyPolicyModal,
+    showUserContentNoticeModal,
     get isOpen(){ return isSettingsOpen; },
     get isThirdPartyOpen(){ return isThirdPartyOpen; }
   };

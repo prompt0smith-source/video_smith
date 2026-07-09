@@ -444,6 +444,13 @@ const CANVAS_FX_OVERLAY_TYPES = new Set([
   "checkpoint_pop",
   "section_divider_slide"
 ]);
+const SPECIAL_EFFECT_OVERLAY_TYPES = new Set([
+  ...CANVAS_FX_OVERLAY_TYPES,
+  "drop_wave",
+  "zoom_focus",
+  "zoom_out_focus",
+  "motion_path_move"
+]);
 const SUPPORTED_EXT = new Set([...SUPPORTED_VIDEO_EXT, ...SUPPORTED_AUDIO_EXT, ...SUPPORTED_IMAGE_EXT]);
 let renderWindow = null;
 let fxRenderHostWindow = null;
@@ -2203,7 +2210,10 @@ function buildTransitionOpacityExpr(segment, progressExpr, mode = "out") {
       clusterSpread: Number(transition.clusterSpread ?? 0.46),
       jitterSpeed: Number(transition.jitterSpeed ?? 1.2),
       seed: Number(transition.seed ?? 17),
-      edgeSoftness: Number(transition.edgeSoftness ?? 0.024)
+      edgeSoftness: Number(transition.edgeSoftness ?? 0.024),
+      qualityMode: "render",
+      maxTiles: 72,
+      opacityOnly: true
     }).opacityExpr;
   }
   if (type.startsWith("blur_slide_") && transitionMotion?.computeDirectionalBlurStateExpr) {
@@ -2310,7 +2320,9 @@ function getCyberMosaicExportConfig(transition, mode) {
     clusterSpread: Number(transition?.clusterSpread ?? 0.46),
     jitterSpeed: Number(transition?.jitterSpeed ?? 1.2),
     seed: Number(transition?.seed ?? 17),
-    edgeSoftness: Number(transition?.edgeSoftness ?? 0.024)
+    edgeSoftness: Number(transition?.edgeSoftness ?? 0.024),
+    qualityMode: "render",
+    maxTiles: 72
   });
 }
 
@@ -4783,6 +4795,7 @@ function getRenderableCanvasFxOverlays(project, rangeStart, rangeEnd) {
   return (project?.overlayItems || [])
     .map((item) => normalizeOverlayItemForRender(item))
     .filter(Boolean)
+    .filter((item) => !item._renderDisabled)
     .filter((item) => CANVAS_FX_OVERLAY_TYPES.has(item.overlayType))
     .filter((item) => {
       const start = Number(item.start || 0);
@@ -5275,7 +5288,7 @@ function projectUsesDropWave(project = {}) {
 }
 
 function projectUsesCanvasFx(project = {}) {
-  return (project.overlayItems || []).some((item) => CANVAS_FX_OVERLAY_TYPES.has(String(item?.overlayType || "")));
+  return (project.overlayItems || []).some((item) => CANVAS_FX_OVERLAY_TYPES.has(String(item?.overlayType || "")) && !item?._renderDisabled);
 }
 
 function projectUsesText(project = {}) {
@@ -5329,6 +5342,40 @@ function sanitizeAudioItemForRender(audio = {}, warnings = []) {
   return next;
 }
 
+function sanitizeSpecialEffectOverlay(overlay = {}, warnings = []) {
+  const next = { ...overlay };
+  const id = String(next.id || "overlay");
+  const overlayType = String(next.overlayType || "");
+  if (!SPECIAL_EFFECT_OVERLAY_TYPES.has(overlayType)) {
+    next._renderDisabled = true;
+    next._renderDisabledReason = "unsupported_fx_overlay";
+    warnings.push(`unsupported_fx_overlay_skipped:${id}:${overlayType || "unknown"}`);
+    return next;
+  }
+  next.duration = Math.max(0.15, Math.min(30, finiteNumber(next.duration, 1.2)));
+  next.x = clampFinite(next.x ?? 0.5, 0, 1, 0.5);
+  next.y = clampFinite(next.y ?? 0.5, 0, 1, 0.5);
+  next.opacity = clampFinite(next.opacity ?? 1, 0, 1, 1);
+  next.width = clampFinite(next.width ?? next.size ?? 0.28, 0.01, 1, 0.28);
+  next.boxWidth = clampFinite(next.boxWidth ?? 0.26, 0.05, 1, 0.26);
+  next.boxHeight = clampFinite(next.boxHeight ?? 0.16, 0.03, 1, 0.16);
+  next.radius = clampFinite(next.radius ?? next.size ?? 0.08, 0.005, 1, 0.08);
+  next.size = clampFinite(next.size ?? next.radius ?? next.width ?? 0.08, 0.005, 1, 0.08);
+  next.strokeWidth = Math.max(0, Math.min(48, finiteNumber(next.strokeWidth, 2.2)));
+  next.lineThickness = Math.max(0.5, Math.min(48, finiteNumber(next.lineThickness, 2.2)));
+  next.lineLength = clampFinite(next.lineLength ?? 0.05, 0.005, 1, 0.05);
+  next.lineCount = Math.max(1, Math.min(96, Math.round(finiteNumber(next.lineCount, 6))));
+  next.waveCount = Math.max(1, Math.min(24, Math.round(finiteNumber(next.waveCount, 4))));
+  next.waveSpacing = clampFinite(next.waveSpacing ?? 0.055, 0.005, 0.5, 0.055);
+  next.amplitude = clampFinite(next.amplitude ?? 0.032, 0, 0.25, 0.032);
+  next.speed = Math.max(0.1, Math.min(8, finiteNumber(next.speed, 1.2)));
+  next.drawDuration = Math.max(0.01, Math.min(next.duration, finiteNumber(next.drawDuration, Math.min(0.6, next.duration))));
+  next.holdDuration = Math.max(0, Math.min(next.duration, finiteNumber(next.holdDuration, 0.4)));
+  next.fadeOutDuration = Math.max(0.01, Math.min(next.duration, finiteNumber(next.fadeOutDuration, 0.25)));
+  next.durationMs = Math.max(120, Math.min(30000, Math.round(finiteNumber(next.durationMs, next.duration * 1000))));
+  return next;
+}
+
 function sanitizeOverlayForRender(overlay = {}, warnings = []) {
   const next = { ...overlay };
   const id = String(next.id || "overlay");
@@ -5367,6 +5414,8 @@ function sanitizeOverlayForRender(overlay = {}, warnings = []) {
           };
         }).filter((run) => run.end > run.start && (run.color || run.fontFamily || run.fontFile || run.fontWeight))
       : [];
+  } else {
+    Object.assign(next, sanitizeSpecialEffectOverlay(next, warnings));
   }
   if ((next.transitionInDurationSec + next.transitionOutDurationSec) > next.duration - MIN_OVERLAY_CLIP_SEC) {
     const budget = Math.max(0, next.duration - MIN_OVERLAY_CLIP_SEC);

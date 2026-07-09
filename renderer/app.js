@@ -146,6 +146,7 @@
     backgroundClipColorInput: $("backgroundClipColorInput"),
     backgroundClipColorHex: $("backgroundClipColorHex"),
     backgroundClipEyedropperBtn: $("backgroundClipEyedropperBtn"),
+    backgroundClipInsertBtn: $("backgroundClipInsertBtn"),
     dropZone: $("dropZone"),
     video: $("video"),
     curTime: $("curTime"),
@@ -534,6 +535,7 @@
       sectionMenuTarget: null,
       fxPopover: { overlayId: null, x: 0, y: 0 },
       transitionPopover: { key: null, anchorX: 0, anchorY: 0 },
+      selectedTransitionId: "",
       motionPathDrawOverlayId: null
     },
     dragging: {
@@ -547,6 +549,7 @@
   };
   const previewChromaCanvasState = new WeakMap();
   const DEFAULT_CHROMA_KEY_COLOR = "#00ff00";
+  const DEFAULT_VIDEO_IMPORT_MODE = "videoOnly";
 
   const dropMetaCache = new Map();
   let playheadRafId = null;
@@ -570,6 +573,9 @@
   let palettePreviewImageReady = false;
   let palettePreviewImageRequested = false;
   let activePaletteDragImageEl = null;
+  let activeInternalBackgroundDropGuideEl = null;
+  let lastPaletteDragItem = null;
+  let lastPaletteDragClearTimer = 0;
   let rangeVisualsBound = false;
   let rangeMutationObserver = null;
   let themeTransitionTimer = 0;
@@ -905,11 +911,74 @@
     return getBackgroundClipColorOptions().find((item) => item.value === normalized)?.label || normalized.toUpperCase();
   }
 
+  function isInternalPaletteItem(item) {
+    const kind = String(item?.kind || "");
+    return kind === "transition" || kind === "text" || kind === "fx" || kind === "background" || kind === "edit_tool";
+  }
+
+  function parseInternalDragPayload(raw) {
+    if (!raw) return null;
+    const parsed = safeParse(raw);
+    return isInternalPaletteItem(parsed) ? parsed : null;
+  }
+
+  function readInternalDragItem(dataTransfer = null) {
+    const candidates = [];
+    try { candidates.push(dataTransfer?.getData?.("application/x-videosmith-item")); } catch {}
+    try { candidates.push(dataTransfer?.getData?.("text/plain")); } catch {}
+    for (const candidate of candidates) {
+      const parsed = parseInternalDragPayload(candidate);
+      if (parsed) return parsed;
+    }
+    if (isInternalPaletteItem(state.dragging.item)) return state.dragging.item;
+    if (isInternalPaletteItem(lastPaletteDragItem)) return lastPaletteDragItem;
+    return null;
+  }
+
+  function rememberPaletteDragItem(item) {
+    if (lastPaletteDragClearTimer) {
+      window.clearTimeout(lastPaletteDragClearTimer);
+      lastPaletteDragClearTimer = 0;
+    }
+    lastPaletteDragItem = isInternalPaletteItem(item) ? item : null;
+  }
+
+  function clearPaletteDragItemSoon(delayMs = 220) {
+    if (lastPaletteDragClearTimer) window.clearTimeout(lastPaletteDragClearTimer);
+    lastPaletteDragClearTimer = window.setTimeout(() => {
+      lastPaletteDragClearTimer = 0;
+      if (!state.dragging.item && !window.__videosmithInternalDrag) lastPaletteDragItem = null;
+    }, Math.max(0, Number(delayMs || 0)));
+  }
+
+  function clearInternalPaletteDragState({ keepLastForDrop = false } = {}) {
+    state.dragging.item = null;
+    window.__videosmithInternalDrag = false;
+    clearPaletteDragImage();
+    clearInternalBackgroundDropGuide();
+    if (keepLastForDrop) {
+      clearPaletteDragItemSoon();
+    } else {
+      if (lastPaletteDragClearTimer) {
+        window.clearTimeout(lastPaletteDragClearTimer);
+        lastPaletteDragClearTimer = 0;
+      }
+      lastPaletteDragItem = null;
+    }
+  }
+
   function clearPaletteDragImage() {
     if (activePaletteDragImageEl?.parentNode) activePaletteDragImageEl.parentNode.removeChild(activePaletteDragImageEl);
     activePaletteDragImageEl = null;
     document.querySelectorAll(".paletteItem.isDragging").forEach((node) => node.classList.remove("isDragging"));
     document.body?.classList.remove("palette-dragging");
+  }
+
+  function clearInternalBackgroundDropGuide() {
+    if (activeInternalBackgroundDropGuideEl?.parentNode) {
+      activeInternalBackgroundDropGuideEl.parentNode.removeChild(activeInternalBackgroundDropGuideEl);
+    }
+    activeInternalBackgroundDropGuideEl = null;
   }
 
   function createPaletteDragImage(item = {}, dragItem = {}) {
@@ -992,6 +1061,7 @@
     state.ui.selectedKeys = [];
     state.ui.selectionOrder = [];
     state.ui.selectedClipId = null;
+    state.ui.selectedTransitionId = "";
     hideFxPopover();
     hideTransitionPopover();
     closeVideoCropModal();
@@ -1130,6 +1200,7 @@
         selectedKeys: [...state.ui.selectedKeys],
         selectionOrder: [...state.ui.selectionOrder],
         selectedClipId: state.ui.selectedClipId || null,
+        selectedTransitionId: state.ui.selectedTransitionId || "",
         activeLane: state.ui.activeLane || null,
         activeSection: { ...state.ui.activeSection },
         currentTime: Number(state.ui.currentTime || 0)
@@ -1141,6 +1212,7 @@
     if (!snapshot?.project) return;
     state.project = cloneHistoryValue(snapshot.project);
     state.ui.transitionPopover.key = null;
+    state.ui.selectedTransitionId = snapshot.ui?.selectedTransitionId || "";
     state.ui.previewEditMode = "transform";
     state.ui.videoCropDraft = null;
     state.ui.videoCropModalOpen = false;
@@ -1208,6 +1280,7 @@
     state.ui.selectedKeys = [key];
     state.ui.selectionOrder = [key];
     state.ui.selectedClipId = kind === "video" ? id : null;
+    state.ui.selectedTransitionId = "";
     if (kind !== "overlay" || state.ui.motionPathDrawOverlayId !== id) {
       state.ui.motionPathDrawOverlayId = null;
     }
@@ -1235,6 +1308,7 @@
       if (state.ui.selectedClipId === id) state.ui.selectedClipId = null;
       return;
     }
+    state.ui.selectedTransitionId = "";
     state.ui.selectedKeys = [...state.ui.selectedKeys, key].slice(-8);
     state.ui.selectionOrder = [...state.ui.selectionOrder.filter(k => k !== key), key].slice(-8);
     if (kind === "video") state.ui.selectedClipId = id;
@@ -1250,6 +1324,7 @@
   }
 
   function selectSectionItems(kind, section = null, options = {}) {
+    state.ui.selectedTransitionId = "";
     const laneKind = kind === "audio" ? "audio" : "video";
     const sec = Math.max(1, Number(section || 1));
     const orderRank = { video: 0, overlay: 1, audio: 0 };
@@ -2072,7 +2147,11 @@
     const linkedClip = options.linkedClip || null;
     if (linkedClip && audio.linkMode === "linked") {
       audio.start = Number(linkedClip.start || 0);
-      audio.section = Math.max(1, Number(linkedClip.section || audio.section || 1));
+      if (options.syncSection === true) {
+        audio.section = Math.max(1, Number(linkedClip.section || audio.section || 1));
+      } else {
+        audio.section = Math.max(1, Number(audio.section || 1));
+      }
       audio.sourceIn = Math.max(0, Number(linkedClip.in || 0));
       audio.sourceOut = Math.max(audio.sourceIn + MIN_TIMELINE_CLIP_SEC, Number(linkedClip.out || audio.sourceIn + MIN_TIMELINE_CLIP_SEC));
       audio.duration = Math.max(MIN_TIMELINE_CLIP_SEC, getVideoClipTimelineDuration(linkedClip));
@@ -2120,7 +2199,7 @@
       pitchContour: Array.isArray(overrides.pitchContour) ? overrides.pitchContour : [],
       sourceIn,
       sourceOut
-    }, { linkedClip: overrides.linkMode === "linked" ? clip : null });
+    }, { linkedClip: overrides.linkMode === "linked" ? clip : null, syncSection: overrides.syncSection === true });
   }
 
   function getAudioItemPreviewState(audio, timelineTime, opts = {}) {
@@ -2846,6 +2925,10 @@
         section: boundary.section,
         fromClipId: boundary.fromClipId,
         toClipId: boundary.toClipId,
+        fromSectionId: Math.max(1, Number(boundary.fromSectionId || boundary.fromClip?.section || boundary.section || 1)),
+        toSectionId: Math.max(1, Number(boundary.toSectionId || boundary.toClip?.section || boundary.section || 1)),
+        seamTime: Number(boundary.time || 0),
+        trackId: boundary.trackId || `video:${boundary.section || 1}`,
         transitionKey: String(boundary.idx)
       };
     }
@@ -2865,6 +2948,7 @@
 
   function writeTransitionForTarget(target, transition) {
     if (!target) return false;
+    if (!state.project.transitions || Array.isArray(state.project.transitions)) state.project.transitions = {};
     const key = target.kind === "boundary"
       ? String(target.boundaryIdx)
       : (target.transitionKey || makeEdgeTransitionKey(target.scope, target.clipId));
@@ -2878,7 +2962,11 @@
         ? {
             section: target.section,
             fromClipId: target.fromClipId,
-            toClipId: target.toClipId
+            toClipId: target.toClipId,
+            fromSectionId: target.fromSectionId || target.section,
+            toSectionId: target.toSectionId || target.section,
+            seamTime: target.seamTime,
+            trackId: target.trackId || `video:${target.section || 1}`
           }
         : {
             section: target.section,
@@ -2887,6 +2975,40 @@
       ...transition
     };
     state.project.transitions[key] = next;
+    return true;
+  }
+
+  function selectTransitionByKey(key) {
+    const normalizedKey = String(key || "");
+    if (!normalizedKey) return false;
+    state.ui.selectedTransitionId = normalizedKey;
+    state.ui.selectedKeys = [];
+    state.ui.selectionOrder = [];
+    state.ui.selectedClipId = null;
+    state.ui.motionPathDrawOverlayId = null;
+    hideFxPopover();
+    closeVideoCropModal();
+    return true;
+  }
+
+  function removeTransitionByKey(key) {
+    const target = buildTransitionTargetFromKey(key);
+    if (!target) return false;
+    return writeTransitionForTarget(target, null);
+  }
+
+  function deleteSelectedTransition() {
+    const key = String(state.ui.selectedTransitionId || "");
+    if (!key) return false;
+    const before = snapshotHistoryState();
+    if (!removeTransitionByKey(key)) return false;
+    state.ui.selectedTransitionId = "";
+    state.ui.transitionPopover.key = null;
+    syncTransitions();
+    renderAll();
+    commitHistorySnapshot(before);
+    scheduleAutosave();
+    toast(t("transitionDeleted", "전환효과를 삭제했습니다."));
     return true;
   }
 
@@ -3479,9 +3601,10 @@
       let boundary = null;
       if (rawValue?.fromClipId && rawValue?.toClipId) {
         boundary = (analysis.boundaries || []).find((item) => (
-          Number(item.section || 1) === Math.max(1, Number(rawValue.section || item.section || 1))
-          && item.fromClipId === rawValue.fromClipId
+          item.fromClipId === rawValue.fromClipId
           && item.toClipId === rawValue.toClipId
+          && (!rawValue.fromSectionId || Number(item.fromSectionId || item.fromClip?.section || item.section || 1) === Math.max(1, Number(rawValue.fromSectionId || 1)))
+          && (!rawValue.toSectionId || Number(item.toSectionId || item.toClip?.section || item.section || 1) === Math.max(1, Number(rawValue.toSectionId || 1)))
         ));
       }
       if (!boundary && parsed.kind === "boundary") {
@@ -3512,7 +3635,11 @@
         ...(overlapDuration > 0.0001 ? { overlapDuration } : {}),
         section: boundary.section,
         fromClipId: boundary.fromClipId,
-        toClipId: boundary.toClipId
+        toClipId: boundary.toClipId,
+        fromSectionId: Math.max(1, Number(boundary.fromSectionId || boundary.fromClip?.section || boundary.section || 1)),
+        toSectionId: Math.max(1, Number(boundary.toSectionId || boundary.toClip?.section || boundary.section || 1)),
+        seamTime: Number(boundary.time || 0),
+        trackId: rawValue.trackId || `video:${boundary.section}`
       };
     }
     state.project.transitions = next;
@@ -3550,7 +3677,6 @@
         if (linked) {
           linked.start = c.start;
           linked.duration = getVideoClipTimelineDuration(c);
-          linked.section = Math.max(1, Number(c.section || 1));
           linked.sourceIn = Math.max(0, Number(c.in || 0));
           linked.sourceOut = Math.max(linked.sourceIn + MIN_TIMELINE_CLIP_SEC, Number(c.out || linked.sourceIn + MIN_TIMELINE_CLIP_SEC));
         }
@@ -6555,6 +6681,7 @@
     if (!target) return;
     const rect = anchorEl?.getBoundingClientRect?.();
     state.ui.transitionPopover.key = target.transitionKey || String(target.boundaryIdx);
+    selectTransitionByKey(state.ui.transitionPopover.key);
     state.ui.transitionPopover.anchorX = Math.round(rect?.right || 0);
     state.ui.transitionPopover.anchorY = Math.round(rect?.bottom || 0);
     renderTransitionPopover();
@@ -6673,7 +6800,7 @@
         `<label class="fxPopoverRow"><span>${t("transitionPopoverEasing", "Easing")}</span><select data-transition-field="easingPreset"><option value="dynamic"${current.easingPreset === "dynamic" ? " selected" : ""}>${t("transitionEasingDynamic", "Dynamic")}</option><option value="gentle"${current.easingPreset === "gentle" ? " selected" : ""}>${t("transitionEasingGentle", "Gentle")}</option></select></label>`
       );
     }
-    rows.push(`<div class="transitionPopoverActions"><button type="button" class="ctxItem" data-transition-action="remove">${target.kind === "boundary" ? t("transitionPopoverRemoveBoundary", "Change to Cut") : t("transitionPopoverRemoveEdge", "Remove Transition")}</button></div>`);
+    rows.push(`<div class="transitionPopoverActions"><button type="button" class="ctxItem" data-transition-action="remove">${t("transitionPopoverRemoveEdge", "Remove Transition")}</button></div>`);
 
     const targetLabel = target.kind === "boundary"
       ? t("transitionPopoverBoundaryTitle", "Boundary Transition")
@@ -6703,18 +6830,8 @@
       });
     });
     pop.querySelector("[data-transition-action='remove']")?.addEventListener("click", () => {
-      runProjectMutationWithHistory(() => {
-        if (target.kind === "boundary") {
-          writeTransitionForTarget(target, makeTransitionPreset("cut", "boundary"));
-        } else {
-          writeTransitionForTarget(target, null);
-        }
-        syncTransitions();
-        renderAll();
-        return true;
-      });
-      if (target.kind === "boundary") renderTransitionPopover();
-      else hideTransitionPopover();
+      selectTransitionByKey(target.transitionKey || String(target.boundaryIdx));
+      deleteSelectedTransition();
     });
   }
 
@@ -7615,6 +7732,7 @@
           jitterSpeed: Number(transition.jitterSpeed ?? 1.2),
           seed: Number(transition.seed ?? 17),
           edgeSoftness: Number(transition.edgeSoftness ?? 0.024),
+          qualityMode: "preview",
           reducedMotion
         });
         return {
@@ -7685,6 +7803,7 @@
           jitterSpeed: Number(transition.jitterSpeed ?? 1.2),
           seed: Number(transition.seed ?? 17),
           edgeSoftness: Number(transition.edgeSoftness ?? 0.024),
+          qualityMode: "preview",
           reducedMotion
         });
         return {
@@ -8407,22 +8526,19 @@
 
   function wireTransitionChipActions() {
     els.videoLane.querySelectorAll(".transitionBridge, .transitionChip").forEach((chip) => {
-      chip.onclick = (e) => {
+      const openTransitionControls = (e) => {
         e.preventDefault();
         e.stopPropagation();
         const key = chip.dataset.transitionKey || chip.dataset.boundaryIdx;
         if (!key) return;
         const anchorRect = chip.getBoundingClientRect();
-        const target = buildTransitionTargetFromKey(key);
         state.ui.transitionPopover.key = null;
-        if (target?.kind === "edge" && target.clipId) {
-          selectSingle("video", target.clipId, target.section);
-        } else if (target?.kind === "boundary" && target.fromClipId) {
-          selectSingle("video", target.fromClipId, target.section);
-        }
+        selectTransitionByKey(key);
         renderAll();
         showTransitionPopover(key, { getBoundingClientRect: () => anchorRect });
       };
+      chip.onclick = openTransitionControls;
+      chip.oncontextmenu = openTransitionControls;
     });
   }
 
@@ -8506,6 +8622,7 @@
             if (actualKind === "video") {
               const clip = state.project.videoClips.find(c => c.id === id);
               if (!clip) return;
+              const sectionChanged = targetSection !== baseSection;
               clip.start = nearestSnapTime(Math.max(0, base + deltaSec), clip.id, {
                 durationSec: getVideoClipTimelineDuration(clip),
                 section: targetSection
@@ -8516,7 +8633,7 @@
                 if (linked) {
                   linked.start = clip.start;
                   linked.duration = getVideoClipTimelineDuration(clip);
-                  linked.section = targetSection;
+                  if (!sectionChanged) linked.section = Math.max(1, Number(linked.section || 1));
                 }
               }
             } else if (actualKind === "audio") {
@@ -8530,7 +8647,6 @@
                 const linkedVideo = state.project.videoClips.find((item) => item.id === audio.linkedVideoId);
                 if (linkedVideo) {
                   linkedVideo.start = nextStart;
-                  linkedVideo.section = targetSection;
                 }
                 audio.start = nextStart;
                 audio.section = targetSection;
@@ -8647,6 +8763,7 @@
         viewportWidth: els.timelineViewport?.clientWidth || 0,
         transitionHoverTarget: state.dragging.item?.kind === "transition" ? state.dragging.transitionHoverTarget : null,
         transitionHoverBoundaryIdx: state.dragging.item?.kind === "transition" ? state.dragging.boundaryHover : null,
+        selectedTransitionId: state.ui.selectedTransitionId,
         draggingTransitionType: state.dragging.item?.kind === "transition" ? state.dragging.item.type : null,
         transitionHoverDurationSec: 0.5
       }
@@ -9728,6 +9845,7 @@
     div.addEventListener("dragstart", (e) => {
       lastDragAt = Date.now();
       state.dragging.item = options.dragItem();
+      rememberPaletteDragItem(state.dragging.item);
       window.__videosmithInternalDrag = true;
       if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = "copy";
@@ -9743,7 +9861,7 @@
 
     div.addEventListener("dragend", () => {
       lastDragAt = Date.now();
-      clearPaletteDragImage();
+      clearInternalPaletteDragState({ keepLastForDrop: true });
     });
 
     return div;
@@ -9805,6 +9923,12 @@
         kind: "background",
         color: getBackgroundClipColorValue(),
         durationSec: BACKGROUND_CLIP_DURATION_SEC
+      }),
+      activate: () => addBackgroundClipFromPalette({
+        color: getBackgroundClipColorValue(),
+        durationSec: BACKGROUND_CLIP_DURATION_SEC,
+        section: state.ui.activeSection.video || 1,
+        time: state.ui.currentTime || 0
       })
     });
     card.insertBefore(createBackgroundPalettePreview(color), card.firstChild);
@@ -9923,6 +10047,14 @@
   els.backgroundClipEyedropperBtn?.addEventListener("click", async () => {
     await openBackgroundClipEyedropper();
   });
+  els.backgroundClipInsertBtn?.addEventListener("click", async () => {
+    await addBackgroundClipFromPalette({
+      color: getBackgroundClipColorValue(),
+      durationSec: BACKGROUND_CLIP_DURATION_SEC,
+      section: state.ui.activeSection.video || 1,
+      time: state.ui.currentTime || 0
+    });
+  });
   if (els.backgroundColorInput) {
     els.backgroundColorInput.oninput = () => {
       state.settings.backgroundColor = normalizeBackgroundColor(els.backgroundColorInput.value);
@@ -9939,23 +10071,25 @@
   }
 
   // Upload/import
-  async function importPaths(paths) {
+  async function importPaths(paths, options = {}) {
     if (!paths?.length) return;
     setUploadStatus(true);
     try {
       const results = await window.pearl.importMedia(paths);
-      applyImportResults(results);
+      applyImportResults(results, options);
     } finally {
       setUploadStatus(false);
     }
   }
 
-  function applyImportResults(results) {
+  function applyImportResults(results, options = {}) {
     const warnings = [];
     const errors = [];
     const importedVideoIds = [];
     const importedAudio = [];
     let firstImportedVideoId = null;
+    const importEmbeddedAudio = options.importEmbeddedAudio === true
+      && String(options.importMode || "").toLowerCase() !== DEFAULT_VIDEO_IMPORT_MODE.toLowerCase();
 
     for (const r of (results || [])) {
       if (!r.ok) {
@@ -9975,7 +10109,7 @@
           id: r.id,
           kind: "video",
           isImage: !!r.isImage,
-          mediaRole: r.meta?.hasAudio ? "linked_av" : "video_only",
+          mediaRole: "video_only",
           name: fileBase(r.originalPath),
           originalPath: r.originalPath,
           stillImagePath: r.stillImagePath || "",
@@ -9988,8 +10122,14 @@
           out: r.meta.duration || 0,
           start: end,
           section: 1,
-          audioEnabled: !!r.meta?.hasAudio,
-          meta: r.meta,
+          audioEnabled: false,
+          hasEmbeddedAudio: !!r.meta?.hasAudio,
+          linkMode: "detached",
+          linkedAudioId: null,
+          meta: {
+            ...(r.meta || {}),
+            hasEmbeddedAudio: !!r.meta?.hasAudio
+          },
           overlays: []
         };
         initVideoClipFields(clip, { defaultSourceIn: 0, defaultDuration: Number(r.meta?.duration || MIN_TIMELINE_CLIP_SEC) });
@@ -9998,12 +10138,13 @@
         clip._thumbRequestCount = 0;
         importedVideoIds.push(clip.id);
         if (!firstImportedVideoId) firstImportedVideoId = clip.id;
-        if (r.meta?.hasAudio) {
+        if (r.meta?.hasAudio && importEmbeddedAudio) {
           const audioId = `${r.id}_aud`;
           state.project.audioItems.push(createLinkedAudioItemFromVideoClip(clip, {
             id: audioId,
             linkedVideoId: r.id,
             linkMode: "linked",
+            syncSection: true,
             gain: 1,
             sourceIn: 0,
             sourceOut: Number(r.meta?.duration || 0)
@@ -10116,6 +10257,30 @@
     return clip;
   }
 
+  async function addBackgroundClipFromPalette({
+    color = getBackgroundClipColorValue(),
+    durationSec = BACKGROUND_CLIP_DURATION_SEC,
+    section = state.ui.activeSection.video || 1,
+    time = state.ui.currentTime || 0
+  } = {}) {
+    setUploadStatus(true);
+    try {
+      const asset = await createBackgroundColorClipAsset(color, durationSec);
+      if (!asset?.ok) {
+        toast(`${t("backgroundClipCreateFailed", "배경 클립 생성 실패")}: ${asset?.error || "unknown error"}`, 2200);
+        return null;
+      }
+      let inserted = null;
+      runProjectMutationWithHistory(() => {
+        inserted = insertGeneratedBackgroundClip(asset, section, time);
+        return !!inserted;
+      });
+      return inserted;
+    } finally {
+      setUploadStatus(false);
+    }
+  }
+
   function fileBase(p) {
     const s = p.replace(/\\/g, "/");
     const parts = s.split("/");
@@ -10162,10 +10327,11 @@
     const dt = e.dataTransfer;
     if (!dt) return false;
     if (window.__videosmithInternalDrag || state.dragging.item) return false;
+    if (readInternalDragItem(dt)) return false;
     const plain = String(dt.getData?.("text/plain") || "");
     if (plain) {
       const parsed = safeParse(plain);
-      if (parsed?.kind === "transition" || parsed?.kind === "text" || parsed?.kind === "fx" || parsed?.kind === "background") return false;
+      if (isInternalPaletteItem(parsed)) return false;
     }
     const types = [...(dt.types || [])].map(t => String(t || "").toLowerCase());
     const hasFilesType = types.includes("files");
@@ -10192,12 +10358,13 @@
     // file:///C:/... can become /C:/...
     if (/^\/[A-Za-z]:\//.test(s)) s = s.slice(1);
     if (/^\/[A-Za-z]:\\/.test(s)) s = s.slice(1);
-    s = s.replace(/\//g, "\\");
+    if (/^[A-Za-z]:[\\/]/.test(s)) s = s.replace(/\//g, "\\");
     return s;
   }
 
   async function extractDropPaths(dt) {
     if (!dt) return [];
+    if (readInternalDragItem(dt)) return [];
     const paths = [];
     const files = [...(dt.files || [])];
     for (const f of files) {
@@ -10234,7 +10401,7 @@
       const plain = String(dt.getData?.("text/plain") || "");
       if (plain) {
         const parsed = safeParse(plain);
-        if (parsed?.kind === "transition" || parsed?.kind === "text" || parsed?.kind === "fx" || parsed?.kind === "background") return [];
+        if (isInternalPaletteItem(parsed)) return [];
         plain
           .split(/\r?\n/)
           .map(x => x.trim())
@@ -10307,6 +10474,7 @@
   }
 
   function clearDropPreview() {
+    clearInternalBackgroundDropGuide();
     state.ui.dropPreview.video = { visible: false, startSec: 0, durationSec: 0, section: 1 };
     state.ui.dropPreview.audio = { visible: false, startSec: 0, durationSec: 0 };
     renderTimeline();
@@ -10512,9 +10680,7 @@
     }
   });
   window.addEventListener("dragend", () => {
-    state.dragging.item = null;
-    window.__videosmithInternalDrag = false;
-    clearPaletteDragImage();
+    clearInternalPaletteDragState({ keepLastForDrop: true });
     clearTransitionDropState();
     resetExternalDragState();
   });
@@ -10877,9 +11043,13 @@
 
   function setRegionButtonVisual(enabled, animate = false) {
     const nextText = enabled ? t("regionOn", "영역 지정 On") : t("regionOff", "영역 지정 Off");
+    const nextTitle = enabled ? t("regionToggleDisable", "영역 지정 끄기") : t("regionToggleEnable", "영역 지정 켜기");
     const applyState = () => {
       els.btnRegion.classList.toggle("regionOn", enabled);
       els.btnRegion.classList.toggle("regionOff", !enabled);
+      els.btnRegion.classList.toggle("isActive", enabled);
+      els.btnRegion.setAttribute("aria-pressed", enabled ? "true" : "false");
+      els.btnRegion.title = nextTitle;
       els.btnRegion.textContent = nextText;
       els.regionOverlay.classList.toggle("offStyle", !enabled);
     };
@@ -11732,13 +11902,25 @@
   // Transition drop snapping
   function setupTransitionDrop() {
     const internalVideoDropTargets = [els.videoLane, els.videoTrack, els.timelineViewport].filter(Boolean);
+    const isInsideInternalVideoDropArea = (e) => {
+      const x = Number(e?.clientX || 0);
+      const y = Number(e?.clientY || 0);
+      return internalVideoDropTargets.some((target) => {
+        const rect = target?.getBoundingClientRect?.();
+        return !!rect && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+      });
+    };
 
     const handleInternalVideoDragEnter = (e) => {
+      if (e.__videosmithInternalDragEnterHandled) return;
       if (isExternalFileDrag(e)) return;
-      if (!state.dragging.item) return;
+      const dragItem = readInternalDragItem(e.dataTransfer);
+      if (!dragItem) return;
+      e.__videosmithInternalDragEnterHandled = true;
+      state.dragging.item = dragItem;
       e.preventDefault();
       e.stopPropagation();
-      if (state.dragging.item.kind !== "transition") {
+      if (dragItem.kind !== "transition") {
         e.dataTransfer.dropEffect = "copy";
         return;
       }
@@ -11749,19 +11931,24 @@
     };
 
     const handleInternalVideoDragOver = (e) => {
+      if (e.__videosmithInternalDragOverHandled) return;
       if (isExternalFileDrag(e)) {
+        e.__videosmithInternalDragOverHandled = true;
         e.preventDefault();
         e.stopPropagation();
         e.dataTransfer.dropEffect = "copy";
         updateDropPreview(e);
         return;
       }
-      if (!state.dragging.item) return;
+      const dragItem = readInternalDragItem(e.dataTransfer);
+      if (!dragItem) return;
+      e.__videosmithInternalDragOverHandled = true;
+      state.dragging.item = dragItem;
       e.preventDefault();
       e.stopPropagation();
-      if (state.dragging.item.kind !== "transition") {
-        if (state.dragging.item.kind === "background") {
-          updateInternalBackgroundDropPreview(e.clientX, e.clientY, state.dragging.item.durationSec);
+      if (dragItem.kind !== "transition") {
+        if (dragItem.kind === "background") {
+          updateInternalBackgroundDropPreview(e.clientX, e.clientY, dragItem.durationSec);
         } else {
           clearDropPreview();
         }
@@ -11794,16 +11981,18 @@
     };
 
     const handleInternalVideoDrop = async (e) => {
+      if (e.__videosmithInternalDropHandled) return;
       if (isExternalFileDrag(e)) return;
-      if (!state.dragging.item) return;
+      const data = readInternalDragItem(e.dataTransfer);
+      if (!data) return;
+      e.__videosmithInternalDropHandled = true;
       e.preventDefault();
       e.stopPropagation();
-      const data = safeParse(e.dataTransfer.getData("text/plain")) || state.dragging.item;
       const resolved = resolveTransitionDropTarget(e.clientX, e.clientY);
-      state.dragging.item = null;
-      clearPaletteDragImage();
-      const dropTime = window.PearlTimeline.pxToSeconds(Math.max(0, resolved.x), state.ui.pxPerSec);
-      const section = resolved.section;
+      clearInternalPaletteDragState();
+      const pointerDrop = resolveTimelinePointerDrop(e.clientX, e.clientY);
+      const dropTime = pointerDrop.timeSec;
+      const section = pointerDrop.section;
 
       if (data?.kind === "edit_tool" && data.type === "chroma_key") {
         const targetClip = resolveVideoClipDropTarget(e.clientX, e.clientY);
@@ -11828,22 +12017,27 @@
 
       if (data?.kind === "fx") {
         if (data.type === "motion_path_move") {
-          const targetClip = resolveVideoClipDropTarget(e.clientX, e.clientY);
+          const targetClip = resolveVideoClipDropTarget(e.clientX, e.clientY)
+            || findNearestVideoClipForDrop(section, dropTime);
           if (!targetClip) {
             window.__videosmithInternalDrag = false;
             clearTransitionDropState();
-            toast("이동 경로 FX는 영상 클립 위에 드롭해야 합니다.", 1800);
+            toast("이동 경로 FX를 적용할 영상 클립이 없습니다.", 1800);
             return;
           }
+          const targetStart = Number(targetClip.start || 0);
+          const targetEnd = getVideoClipTimelineEnd(targetClip);
+          const motionDuration = 1.2;
+          const motionStart = Math.max(targetStart, Math.min(dropTime, Math.max(targetStart, targetEnd - motionDuration)));
           let createdOverlay = null;
           runProjectMutationWithHistory(() => {
-            createdOverlay = addFxOverlay(data.type, targetClip.section || section || 1, dropTime, {
+            createdOverlay = addFxOverlay(data.type, targetClip.section || section || 1, motionStart, {
               targetClipId: targetClip.id,
               color: "#38bdf8",
               strokeWidth: 4,
               deltaX: 0,
               deltaY: 0,
-              duration: 1.2
+              duration: motionDuration
             });
             return !!createdOverlay;
           });
@@ -11861,16 +12055,14 @@
       }
 
       if (data?.kind === "background") {
-        setUploadStatus(true);
         try {
-          const asset = await createBackgroundColorClipAsset(data.color, data.durationSec);
-          if (!asset?.ok) {
-            toast(`${t("backgroundClipCreateFailed", "배경 클립 생성 실패")}: ${asset?.error || "unknown error"}`, 2200);
-            return;
-          }
-          runProjectMutationWithHistory(() => !!insertGeneratedBackgroundClip(asset, section, dropTime));
+          await addBackgroundClipFromPalette({
+            color: data.color,
+            durationSec: data.durationSec,
+            section,
+            time: dropTime
+          });
         } finally {
-          setUploadStatus(false);
           window.__videosmithInternalDrag = false;
           clearTransitionDropState();
         }
@@ -11908,6 +12100,16 @@
       target.addEventListener("dragleave", handleInternalVideoDragLeave);
       target.addEventListener("drop", handleInternalVideoDrop);
     });
+    document.addEventListener("dragover", (e) => {
+      if (e.__videosmithInternalDragOverHandled) return;
+      if (!readInternalDragItem(e.dataTransfer) || !isInsideInternalVideoDropArea(e)) return;
+      handleInternalVideoDragOver(e);
+    }, true);
+    document.addEventListener("drop", (e) => {
+      if (e.__videosmithInternalDropHandled) return;
+      if (!readInternalDragItem(e.dataTransfer) || !isInsideInternalVideoDropArea(e)) return;
+      void handleInternalVideoDrop(e);
+    }, true);
   }
 
   function safeParse(s) { try { return JSON.parse(s); } catch { return null; } }
@@ -11950,30 +12152,77 @@
     return Math.max(1, Number(rows[0].dataset.section || 1));
   }
 
+  function resolveTimelinePointerDrop(clientX, clientY) {
+    const videoRect = els.videoLane?.getBoundingClientRect?.();
+    const viewportRect = els.timelineViewport?.getBoundingClientRect?.() || videoRect;
+    if (!videoRect || !viewportRect) return { insideTimeline: false, x: 0, timeSec: 0, section: 1 };
+    const insideTimeline = clientX >= viewportRect.left && clientX <= viewportRect.right
+      && clientY >= viewportRect.top && clientY <= viewportRect.bottom;
+    const x = Math.max(0, Number(clientX || 0) - videoRect.left + Number(els.timelineViewport?.scrollLeft || 0));
+    return {
+      insideTimeline,
+      x,
+      timeSec: window.PearlTimeline.pxToSeconds(x, state.ui.pxPerSec),
+      section: getVideoSectionAtClientY(clientY)
+    };
+  }
+
+  function findNearestVideoClipForDrop(section, timeSec) {
+    const clips = [...(state.project.videoClips || [])];
+    if (!clips.length) return null;
+    const targetSection = Math.max(1, Number(section || 1));
+    const scoreClip = (clip) => {
+      const clipSection = Math.max(1, Number(clip.section || 1));
+      const start = Number(clip.start || 0);
+      const end = getVideoClipTimelineEnd(clip);
+      const timeDistance = timeSec >= start && timeSec <= end
+        ? 0
+        : Math.min(Math.abs(timeSec - start), Math.abs(timeSec - end));
+      return (Math.abs(clipSection - targetSection) * 100000) + timeDistance;
+    };
+    return clips
+      .map((clip) => ({ clip, score: scoreClip(clip) }))
+      .sort((a, b) => a.score - b.score)[0]?.clip || null;
+  }
+
   function updateInternalBackgroundDropPreview(clientX, clientY, durationSec = BACKGROUND_CLIP_DURATION_SEC) {
-    const rect = els.videoLane.getBoundingClientRect();
-    const inside = clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+    const laneRect = els.videoLane.getBoundingClientRect();
+    const viewportRect = els.timelineViewport?.getBoundingClientRect?.() || laneRect;
+    const inside = clientX >= viewportRect.left && clientX <= viewportRect.right && clientY >= viewportRect.top && clientY <= viewportRect.bottom;
     if (!inside) {
       clearDropPreview();
       return false;
     }
-    const startSec = window.PearlTimeline.pxToSeconds(
-      Math.max(0, clientX - rect.left + Number(els.timelineViewport?.scrollLeft || 0)),
-      state.ui.pxPerSec
-    );
+    const laneX = Math.max(0, clientX - laneRect.left + Number(els.timelineViewport?.scrollLeft || 0));
+    const startSec = window.PearlTimeline.pxToSeconds(laneX, state.ui.pxPerSec);
     const previewDurationSec = Math.max(MIN_TIMELINE_CLIP_SEC, Number(durationSec || BACKGROUND_CLIP_DURATION_SEC));
     const previewColor = normalizeBackgroundColor(state.dragging.item?.color || state.settings.backgroundClipColor || "#ffffff");
+    const section = getVideoSectionAtClientY(clientY);
     state.ui.dropPreview.video = {
       visible: true,
       startSec,
       durationSec: previewDurationSec,
-      section: getVideoSectionAtClientY(clientY),
+      section,
       kind: "background",
       color: previewColor,
       label: `${t("backgroundClipCardName", "배경 클립")} · ${formatTimelineSec(previewDurationSec)}s`
     };
     state.ui.dropPreview.audio = { visible: false, startSec: 0, durationSec: 0 };
-    renderTimeline();
+    const row = els.videoLane.querySelector(`.trackRowLane[data-kind="video"][data-section="${section}"]`)
+      || els.videoLane.querySelector('.trackRowLane[data-kind="video"]');
+    if (!row) return false;
+    if (!activeInternalBackgroundDropGuideEl || activeInternalBackgroundDropGuideEl.parentNode !== row) {
+      clearInternalBackgroundDropGuide();
+      activeInternalBackgroundDropGuideEl = document.createElement("div");
+      activeInternalBackgroundDropGuideEl.className = "dropTargetHighlight internalBackgroundDropGuide";
+      activeInternalBackgroundDropGuideEl.setAttribute("aria-hidden", "true");
+      row.appendChild(activeInternalBackgroundDropGuideEl);
+    }
+    activeInternalBackgroundDropGuideEl.dataset.dropKind = "background";
+    activeInternalBackgroundDropGuideEl.dataset.label = state.ui.dropPreview.video.label;
+    activeInternalBackgroundDropGuideEl.style.setProperty("--drop-preview-color", previewColor);
+    activeInternalBackgroundDropGuideEl.style.left = `${laneX}px`;
+    activeInternalBackgroundDropGuideEl.style.width = `${Math.max(28, window.PearlTimeline.secondsToPx(previewDurationSec, state.ui.pxPerSec))}px`;
     return true;
   }
 
@@ -12016,12 +12265,46 @@
     return best?.target || null;
   }
 
+  function resolveNearestTransitionEdgeTarget(section, x, canApply) {
+    const candidates = [];
+    (state.project.videoClips || []).forEach((clip) => {
+      const clipSection = Math.max(1, Number(clip.section || 1));
+      if (clipSection !== section || !clip.id) return;
+      const startX = window.PearlTimeline.secondsToPx(Number(clip.start || 0), state.ui.pxPerSec);
+      const endX = window.PearlTimeline.secondsToPx(getVideoClipTimelineEnd(clip), state.ui.pxPerSec);
+      if (canApply("intro")) {
+        candidates.push({
+          distance: Math.abs(x - startX),
+          target: {
+            kind: "edge",
+            scope: "intro",
+            clipId: clip.id,
+            section,
+            transitionKey: makeEdgeTransitionKey("intro", clip.id)
+          }
+        });
+      }
+      if (canApply("outro")) {
+        candidates.push({
+          distance: Math.abs(x - endX),
+          target: {
+            kind: "edge",
+            scope: "outro",
+            clipId: clip.id,
+            section,
+            transitionKey: makeEdgeTransitionKey("outro", clip.id)
+          }
+        });
+      }
+    });
+    return candidates.sort((a, b) => a.distance - b.distance)[0]?.target || null;
+  }
+
   function resolveTransitionDropTarget(clientX, clientY) {
-    const rect = els.videoLane.getBoundingClientRect();
-    const inside = clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
-    if (!inside) return { target: null, x: 0, section: 1 };
-    const x = Math.max(0, clientX - rect.left + Number(els.timelineViewport?.scrollLeft || 0));
-    const section = getVideoSectionAtClientY(clientY);
+    const pointerDrop = resolveTimelinePointerDrop(clientX, clientY);
+    if (!pointerDrop.insideTimeline) return { target: null, x: 0, section: 1 };
+    const x = pointerDrop.x;
+    const section = pointerDrop.section;
     const draggingType = String(state.dragging.item?.type || "");
     const canApply = (scope) => {
       if (scope !== "boundary" && draggingType === "cut") return true;
@@ -12032,19 +12315,38 @@
 
     const row = [...els.videoLane.querySelectorAll('.trackRowLane[data-kind="video"]')]
       .find((item) => Number(item.dataset.section || 1) === section);
-    const rowRect = row?.getBoundingClientRect?.() || rect;
-    const boundary = window.PearlTimeline.snapBoundary(state.ui.boundaries, x, { section });
+    const rowRect = row?.getBoundingClientRect?.() || els.videoLane.getBoundingClientRect();
+    const seamTime = window.PearlTimeline.pxToSeconds(x, state.ui.pxPerSec);
+    const seamToleranceSec = Math.max(0.05, Math.min(0.25, window.PearlTimeline.pxToSeconds(18, state.ui.pxPerSec)));
+    const seamCandidate = renderGraph?.findTransitionSeamCandidates?.({
+      project: state.project,
+      time: seamTime,
+      targetSectionId: section,
+      toleranceSec: seamToleranceSec
+    })?.[0] || null;
+    const boundary = seamCandidate
+      ? {
+          ...(state.ui.boundaries || []).find((item) => item.idx === seamCandidate.idx),
+          ...seamCandidate,
+          x: window.PearlTimeline.secondsToPx(seamCandidate.time, state.ui.pxPerSec)
+        }
+      : window.PearlTimeline.snapBoundary(state.ui.boundaries, x, { section });
+    const makeBoundaryTarget = (item) => ({
+      kind: "boundary",
+      boundaryIdx: item.idx,
+      section: item.section,
+      fromClipId: item.fromClipId,
+      toClipId: item.toClipId,
+      fromSectionId: Math.max(1, Number(item.fromSectionId || item.fromClip?.section || item.section || 1)),
+      toSectionId: Math.max(1, Number(item.toSectionId || item.toClip?.section || item.section || 1)),
+      seamTime: Number(item.time || 0),
+      trackId: item.trackId || `video:${item.section || 1}`,
+      transitionKey: String(item.idx)
+    });
     const isBoundaryBand = clientY <= (rowRect.top + 38);
     if (boundary && isBoundaryBand && canApply("boundary")) {
       return {
-        target: {
-          kind: "boundary",
-          boundaryIdx: boundary.idx,
-          section: boundary.section,
-          fromClipId: boundary.fromClipId,
-          toClipId: boundary.toClipId,
-          transitionKey: String(boundary.idx)
-        },
+        target: makeBoundaryTarget(boundary),
         x,
         section
       };
@@ -12117,14 +12419,30 @@
 
     if (boundary && canApply("boundary")) {
       return {
-        target: {
-          kind: "boundary",
-          boundaryIdx: boundary.idx,
-          section: boundary.section,
-          fromClipId: boundary.fromClipId,
-          toClipId: boundary.toClipId,
-          transitionKey: String(boundary.idx)
-        },
+        target: makeBoundaryTarget(boundary),
+        x,
+        section
+      };
+    }
+    const nearestBoundary = (state.ui.boundaries || [])
+      .filter((item) => Number(item.section || 1) === section)
+      .filter((item) => item.transitionEligible !== false && canApply("boundary"))
+      .map((item) => ({
+        ...item,
+        d: Math.abs(Number(item.x ?? window.PearlTimeline.secondsToPx(Number(item.time || 0), state.ui.pxPerSec)) - x)
+      }))
+      .sort((a, b) => a.d - b.d)[0] || null;
+    if (nearestBoundary) {
+      return {
+        target: makeBoundaryTarget(nearestBoundary),
+        x,
+        section
+      };
+    }
+    const nearestEdge = resolveNearestTransitionEdgeTarget(section, x, canApply);
+    if (nearestEdge) {
+      return {
+        target: nearestEdge,
         x,
         section
       };
@@ -12323,6 +12641,12 @@
     persistenceState.autoSaveTimer = setInterval(() => {
       void persistAutosaveCache();
     }, AUTO_SAVE_INTERVAL_MS);
+  }
+
+  function scheduleAutosave() {
+    window.setTimeout(() => {
+      void persistAutosaveCache();
+    }, 0);
   }
 
   async function handleAppCloseRequest() {
@@ -12742,7 +13066,13 @@
       return;
     }
     if (e.key.toLowerCase() === "d" && !ctrl) { e.preventDefault(); runProjectMutationWithHistory(() => divideSelectedVideoAudio()); return; }
-    if (e.key === "Delete") {
+    if (e.key === "Delete" || e.key === "Backspace") {
+      if (deleteSelectedTransition()) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      if (e.key === "Backspace") return;
       e.preventDefault();
       const runDelete = () => {
         if (state.ui.selectedKeys.length) return deleteSelectedItems();

@@ -28,7 +28,7 @@
     sectionRender: "Render Settings",
     sectionClips: "Clip List",
     hintTransitions: "Drag to clip boundaries on the timeline for auto snap.",
-    hintBackgroundClip: "Drag to a video section on the timeline to add a 5-second background clip.",
+    hintBackgroundClip: "Drag to a video section on the timeline or use the button to add a 5-second background clip.",
     hintText: "Drag into the preview area to create a real text overlay clip.",
     labelFps: "FPS",
     labelRes: "Resolution",
@@ -41,6 +41,8 @@
     labelRegion: "Region Mode",
     regionOn: "Region On",
     regionOff: "Region Off",
+    regionToggleEnable: "Turn region selection on",
+    regionToggleDisable: "Turn region selection off",
     emptyClips: "No files uploaded yet.",
     dropHint1: "Drag & drop video/audio files to the timeline below",
     dropHint2: "(or use the upload button in the top-left toolbar)",
@@ -141,10 +143,10 @@
       <section class="noticeSection">
         <h4>Official-source Notice</h4>
         <ul>
-          <li><b>Electron</b>: Electron's official docs describe Electron as MIT-licensed and free for commercial and personal use. Notices for Chromium, Node.js, and related bundled components still need to be preserved.</li>
+          <li><b>Electron</b>: Electron is provided under the MIT license. Notices for Chromium, Node.js, and related bundled components still need to be preserved.</li>
           <li><b>MIT packages</b>: The SPDX MIT text requires the copyright notice and permission notice to remain with copies or substantial portions. Do not remove notices just because the package is permissive.</li>
           <li><b>Display name</b>: The user-visible app name is VideoS in the window title, taskbar, Start menu, and shortcuts. Video Smith/VideoSmith in terms and project filters refers to the same product identity.</li>
-          <li><b>User content and fonts</b>: Users are responsible for checking rights for imported video, images, audio, subtitles, and font files, including commercial-use and redistribution permissions. The app does not guarantee rights for external content.</li>
+          <li><b>User content and fonts</b>: Users are responsible for checking rights for imported video, images, audio, subtitles, and font files, including publication, rendering, and redistribution permissions. The app does not guarantee rights for external content.</li>
           <li>Official references: ffmpeg.org/legal.html, github.com/FFmpeg/FFmpeg LICENSE.md, electronjs.org/docs/latest/why-electron, spdx.org/licenses/MIT</li>
         </ul>
       </section>
@@ -176,6 +178,7 @@
     genericClip: "Clip",
     backgroundClipCardName: "Background Clip",
     backgroundClipCardDesc: "Drag to add a 5-second background clip.",
+    btnBackgroundClipInsert: "Add to Timeline",
     backgroundClipDefaultName: "Background",
     backgroundClipApplied: "Background clip added",
     backgroundClipCreateFailed: "Failed to create background clip",
@@ -273,6 +276,7 @@
     transitionEasingGentle: "Gentle",
     transitionPopoverRemoveBoundary: "Change to Cut",
     transitionPopoverRemoveEdge: "Remove Transition",
+    transitionDeleted: "Transition deleted.",
     transitionDropInvalid: "Transitions can be dropped only on clip boundaries or clip start/end edges.",
     transitionApplied: "Transition applied"
   };

@@ -471,7 +471,8 @@
           clusterSpread: 0.46,
           jitterSpeed: 1.2 + ((cfg.strength - 1) * 0.25),
           seed: cfg.seed,
-          edgeSoftness: 0.024
+          edgeSoftness: 0.024,
+          qualityMode: options.previewMode === "palette" ? "palette" : "preview"
         };
         const state = transitionMotion.computeCyberMosaicState(stage.progress, options);
         opacityMultiplier *= clamp(state?.opacity ?? 1, 0, 1);

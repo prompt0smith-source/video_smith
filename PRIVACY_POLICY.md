@@ -2,6 +2,9 @@
 
 VideoSmith is designed as a local desktop application. By default, VideoSmith does not upload the user's video, audio, image, subtitle, font, or project files to an external server.
 
+VideoSmith는 기본적으로 로컬 데스크톱 앱으로 동작합니다.
+기본 편집 기능 사용 과정에서 사용자의 영상, 이미지, 오디오, 자막, 글꼴, 프로젝트 파일을 외부 서버로 업로드하지 않습니다.
+
 ## Locally Stored Data
 
 VideoSmith may store or create local data such as:

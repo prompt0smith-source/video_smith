@@ -553,6 +553,7 @@ test("repository legal notices and in-app legal UI stay wired", () => {
   const htmlSource = fs.readFileSync(path.join(repoRoot, "renderer", "index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
   const settingsSource = fs.readFileSync(path.join(repoRoot, "renderer", "settings.js"), "utf8");
+  const cssSource = fs.readFileSync(path.join(repoRoot, "renderer", "styles.css"), "utf8");
   const koSource = fs.readFileSync(path.join(repoRoot, "renderer", "i18n", "ko.js"), "utf8");
   const enSource = fs.readFileSync(path.join(repoRoot, "renderer", "i18n", "en.js"), "utf8");
   const scriptSource = fs.readFileSync(path.join(repoRoot, "scripts", "generate-third-party-notices.js"), "utf8");
@@ -586,7 +587,10 @@ test("repository legal notices and in-app legal UI stay wired", () => {
   assert.match(thirdParty, /VideoSmith does not claim ownership of third-party components/);
   assert.match(ffmpegNotice, /license terms of FFmpeg\/FFprobe depend on the exact binary/);
   assert.match(privacy, /does not upload the user's video, audio, image, subtitle, font, or project files/);
+  assert.match(privacy, /기본 편집 기능 사용 과정에서 사용자의 영상, 이미지, 오디오, 자막, 글꼴, 프로젝트 파일을 외부 서버로 업로드하지 않습니다/);
   assert.match(userContent, /does not claim ownership of output created by users/);
+  assert.match(userContent, /VideoSmith는 사용자가 제작한 결과물의 권리를 주장하지 않습니다/);
+  assert.match(fs.readFileSync(path.join(repoRoot, "TERMS_OF_USE.md"), "utf8"), /본 프로그램은 있는 그대로 제공되며/);
   assert.match(generated, /\| ffmpeg-static \| 5\.3\.0 \| GPL-3\.0-or-later/);
 
   for (const id of ["btnLegalNotice", "btnOpenSourceLicenses", "btnThirdPartyNotices", "btnFfmpegNotice", "btnPrivacyPolicy", "btnUserContentNotice"]) {
@@ -595,6 +599,8 @@ test("repository legal notices and in-app legal UI stay wired", () => {
   assert.match(htmlSource, /data-legal-doc="legal"/);
   assert.match(htmlSource, /data-legal-doc="openSource"/);
   assert.match(htmlSource, /data-legal-doc="ffmpeg"/);
+  assert.match(htmlSource, /class="legalNoticeNav"/);
+  assert.match(htmlSource, /role="tablist"/);
   assert.match(htmlSource, /data-i18n-html="legalNoticeBody"/);
   assert.match(appSource, /const LEGAL_NOTICE_VERSION = "2026\.07\.09"/);
   assert.match(appSource, /const LEGAL_NOTICE_ACCEPT_KEY = "videosmith\.legalNoticeAcceptedVersion"/);
@@ -602,7 +608,14 @@ test("repository legal notices and in-app legal UI stay wired", () => {
   assert.match(appSource, /showLegalNoticeModal\?\.\("legal"\)/);
   assert.match(settingsSource, /const LEGAL_DOCS = \{/);
   assert.match(settingsSource, /function showLegalNoticeModal\(docKey = "legal"\)/);
+  assert.match(settingsSource, /function showOpenSourceNoticeModal\(\)/);
+  assert.match(settingsSource, /function showThirdPartyNoticesModal\(\)/);
+  assert.match(settingsSource, /function showPrivacyPolicyModal\(\)/);
+  assert.match(settingsSource, /function showUserContentNoticeModal\(\)/);
+  assert.match(settingsSource, /aria-selected/);
   assert.match(settingsSource, /document\.querySelectorAll\("\[data-legal-doc\]"\)/);
+  assert.match(cssSource, /\.legalNoticeNav\{/);
+  assert.match(cssSource, /\.legalNoticeNavBtn\.active/);
   assert.match(koSource, /legalNoticePanelBody/);
   assert.match(enSource, /openSourceLicensesBody/);
 
@@ -619,6 +632,7 @@ test("VideoSmith project files, preview resize, and compact timeline controls st
   const overlaySource = fs.readFileSync(path.join(repoRoot, "renderer", "overlay_engine.js"), "utf8");
   const timelineSource = fs.readFileSync(path.join(repoRoot, "renderer", "timeline.js"), "utf8");
   const cssSource = fs.readFileSync(path.join(repoRoot, "renderer", "styles.css"), "utf8");
+  const htmlSource = fs.readFileSync(path.join(repoRoot, "renderer", "index.html"), "utf8");
   const koSource = fs.readFileSync(path.join(repoRoot, "renderer", "i18n", "ko.js"), "utf8");
   const enSource = fs.readFileSync(path.join(repoRoot, "renderer", "i18n", "en.js"), "utf8");
 
@@ -654,6 +668,32 @@ test("VideoSmith project files, preview resize, and compact timeline controls st
   assert.doesNotMatch(timelineSource, /innerHTML = "<span><\/span><span><\/span><span><\/span>"/);
   assert.match(appSource, /function createPaletteDragImage/);
   assert.match(appSource, /setDragImage\(dragImage, 18, 18\)/);
+  assert.match(appSource, /let lastPaletteDragItem = null/);
+  assert.match(appSource, /function readInternalDragItem\(dataTransfer = null\)/);
+  assert.match(appSource, /getData\?\.\("application\/x-videosmith-item"\)/);
+  assert.match(appSource, /let activeInternalBackgroundDropGuideEl = null/);
+  assert.match(appSource, /function clearInternalBackgroundDropGuide\(\)/);
+  assert.match(appSource, /function resolveTimelinePointerDrop\(clientX, clientY\)/);
+  assert.match(appSource, /function findNearestVideoClipForDrop\(section, timeSec\)/);
+  assert.match(appSource, /function resolveNearestTransitionEdgeTarget\(section, x, canApply\)/);
+  assert.match(appSource, /rememberPaletteDragItem\(state\.dragging\.item\)/);
+  assert.match(appSource, /clearInternalPaletteDragState\(\{ keepLastForDrop: true \}\)/);
+  assert.match(appSource, /activate: \(\) => addBackgroundClipFromPalette/);
+  assert.match(htmlSource, /id="backgroundClipInsertBtn"/);
+  assert.match(appSource, /backgroundClipInsertBtn: \$\("backgroundClipInsertBtn"\)/);
+  assert.match(appSource, /els\.backgroundClipInsertBtn\?\.addEventListener\("click"/);
+  assert.match(appSource, /document\.addEventListener\("dragover"[\s\S]*handleInternalVideoDragOver\(e\)[\s\S]*true\)/);
+  assert.match(appSource, /document\.addEventListener\("drop"[\s\S]*void handleInternalVideoDrop\(e\)[\s\S]*true\)/);
+  assert.match(appSource, /const data = readInternalDragItem\(e\.dataTransfer\)/);
+  assert.match(appSource, /const pointerDrop = resolveTimelinePointerDrop\(e\.clientX, e\.clientY\)/);
+  assert.match(appSource, /const targetClip = resolveVideoClipDropTarget\(e\.clientX, e\.clientY\)[\s\S]*\|\| findNearestVideoClipForDrop\(section, dropTime\)/);
+  assert.match(appSource, /const nearestBoundary = \(state\.ui\.boundaries \|\| \[\]\)[\s\S]*sort\(\(a, b\) => a\.d - b\.d\)/);
+  assert.match(appSource, /const nearestEdge = resolveNearestTransitionEdgeTarget\(section, x, canApply\)/);
+  assert.match(appSource, /await addBackgroundClipFromPalette\(\{[\s\S]*color: data\.color/);
+  const backgroundPreviewFn = appSource.match(/function updateInternalBackgroundDropPreview[\s\S]*?\n  function resolveTransitionEdgeFromGeometry/)[0];
+  assert.match(backgroundPreviewFn, /els\.timelineViewport\?\.getBoundingClientRect/);
+  assert.match(backgroundPreviewFn, /internalBackgroundDropGuide/);
+  assert.doesNotMatch(backgroundPreviewFn, /renderTimeline\(\)/);
   assert.match(appSource, /kind: "background"[\s\S]*color: previewColor/);
   assert.match(appSource, /function computeAnchoredResizeRect/);
   assert.match(appSource, /function applyOverlayResizeRect/);
@@ -663,6 +703,7 @@ test("VideoSmith project files, preview resize, and compact timeline controls st
   assert.match(cssSource, /--clip-option-bg/);
   assert.match(cssSource, /\.dragPreviewGhost/);
   assert.match(cssSource, /--drop-preview-border/);
+  assert.match(cssSource, /\.backgroundClipInsertBtn/);
   assert.match(cssSource, /\.dropTargetHighlight\[data-drop-kind="background"\]::before/);
   assert.match(cssSource, /\.previewOverlayHandle\[data-handle="n"\][\s\S]*width:18px/);
   assert.match(cssSource, /\.previewOverlayHandle\[data-handle="e"\][\s\S]*height:18px/);
@@ -846,6 +887,91 @@ test("timeline transition bridge suppresses duplicate fade handles", () => {
   assert.match(cssSource, /text-overflow:ellipsis/);
 });
 
+test("video import stays video-only and linked A/V section moves do not chase tracks", () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
+  assert.match(appSource, /const DEFAULT_VIDEO_IMPORT_MODE = "videoOnly"/);
+  assert.match(appSource, /const importEmbeddedAudio = options\.importEmbeddedAudio === true/);
+  assert.match(appSource, /mediaRole: "video_only"/);
+  assert.match(appSource, /audioEnabled: false/);
+  assert.match(appSource, /hasEmbeddedAudio: !!r\.meta\?\.hasAudio/);
+  assert.match(appSource, /if \(r\.meta\?\.hasAudio && importEmbeddedAudio\)/);
+  assert.match(appSource, /options\.syncSection === true/);
+  assert.match(appSource, /syncSection: overrides\.syncSection === true/);
+  assert.doesNotMatch(appSource, /linked\.section = targetSection/);
+  assert.doesNotMatch(appSource, /linkedVideo\.section = targetSection/);
+});
+
+test("cross-section transition seams are candidates without changing same-section priority", () => {
+  const renderGraph = require(path.join(repoRoot, "lib", "render_graph.js"));
+  const project = {
+    videoClips: [
+      { id: "a", section: 1, start: 0, in: 0, out: 1, timelineDuration: 1 },
+      { id: "same", section: 1, start: 1, in: 0, out: 1, timelineDuration: 1 },
+      { id: "cross", section: 2, start: 1, in: 0, out: 1, timelineDuration: 1 }
+    ],
+    transitions: {
+      crossTransition: {
+        type: "cross",
+        fromClipId: "a",
+        toClipId: "cross",
+        fromSectionId: 1,
+        toSectionId: 2,
+        duration: 0.4
+      }
+    }
+  };
+  const analysis = renderGraph.analyzeProject(project);
+  const crossBoundary = analysis.boundaries.find((boundary) => boundary.fromClipId === "a" && boundary.toClipId === "cross");
+  assert.equal(crossBoundary.crossSection, true);
+  assert.equal(crossBoundary.fromSectionId, 1);
+  assert.equal(crossBoundary.toSectionId, 2);
+  const candidates = renderGraph.findTransitionSeamCandidates({
+    project,
+    time: 1,
+    targetSectionId: 1,
+    toleranceSec: 0.08
+  });
+  assert.ok(candidates.length >= 2);
+  assert.notEqual(candidates[0].crossSection, true);
+  assert.ok(candidates.some((candidate) => candidate.crossSection && candidate.toClipId === "cross"));
+
+  const normalized = renderGraph.normalizeProjectTransitions(project);
+  assert.equal(normalized.transitions.length, 1);
+  assert.equal(normalized.transitions[0].fromSectionId, 1);
+  assert.equal(normalized.transitions[0].toSectionId, 2);
+  assert.equal(normalized.transitions[0].seamTime, 1);
+});
+
+test("transition bridge selection, keyboard deletion, cyber quality, and region button contract stay wired", () => {
+  const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
+  const timelineSource = fs.readFileSync(path.join(repoRoot, "renderer", "timeline.js"), "utf8");
+  const transitionMotionSource = fs.readFileSync(path.join(repoRoot, "lib", "transition_motion.js"), "utf8");
+  const mainSource = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
+  const htmlSource = fs.readFileSync(path.join(repoRoot, "renderer", "index.html"), "utf8");
+  const cssSource = fs.readFileSync(path.join(repoRoot, "renderer", "styles.css"), "utf8");
+
+  assert.match(appSource, /selectedTransitionId: ""/);
+  assert.match(appSource, /function selectTransitionByKey/);
+  assert.match(appSource, /function deleteSelectedTransition/);
+  assert.match(appSource, /removeTransitionByKey\(key\)/);
+  assert.match(appSource, /e\.key === "Delete" \|\| e\.key === "Backspace"/);
+  assert.match(appSource, /scheduleAutosave\(\)/);
+  assert.match(timelineSource, /selectedTransitionId/);
+  assert.match(timelineSource, /classList\.add\("isSelected"\)/);
+  assert.match(cssSource, /\.transitionBridge\.isSelected/);
+  assert.match(cssSource, /--transition-bridge-selected-border/);
+  assert.match(transitionMotionSource, /function getCyberMosaicQuality/);
+  assert.match(transitionMotionSource, /border: false/);
+  assert.match(transitionMotionSource, /qualityMode: "palette"/);
+  assert.match(transitionMotionSource, /opacityOnly/);
+  assert.match(mainSource, /function sanitizeSpecialEffectOverlay/);
+  assert.match(mainSource, /unsupported_fx_overlay_skipped/);
+  assert.match(htmlSource, /class="btn regionToggleBtn regionOff"/);
+  assert.match(cssSource, /--region-btn-active-border/);
+  assert.match(cssSource, /#btnRegion\.regionToggleBtn\[aria-pressed="true"\]/);
+  assert.doesNotMatch(cssSource, /#btnRegion\.regionOff\{[^}]*#dc2626/);
+});
+
 test("korean drawtext subtitles prefer a Korean-capable font", () => {
   const mainSource = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
   const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
@@ -968,6 +1094,22 @@ test("render sanitize and Korean font verification produce a safe render plan", 
   });
   assert.equal(font.profile.hasHangul, true);
   assert.ok(font.canUseDrawtext ? !!font.fontFile : font.requiresCanvasFallback);
+
+  const fxSanitized = api.sanitizeRenderProjectForFfmpeg({
+    videoClips: [],
+    audioItems: [],
+    overlayItems: [
+      { id: "circle-fx", overlayType: "circle", start: -1, duration: 0, x: Number.NaN, y: 2, opacity: 4, strokeWidth: Number.NaN },
+      { id: "bad-fx", overlayType: "unknown_fx", duration: -5 }
+    ]
+  }, target);
+  assert.equal(fxSanitized.project.overlayItems[0].start, 0);
+  assert.ok(fxSanitized.project.overlayItems[0].duration >= 0.15);
+  assert.equal(fxSanitized.project.overlayItems[0].x, 0.5);
+  assert.equal(fxSanitized.project.overlayItems[0].y, 1);
+  assert.equal(fxSanitized.project.overlayItems[0].opacity, 1);
+  assert.equal(fxSanitized.project.overlayItems[1]._renderDisabled, true);
+  assert.ok(fxSanitized.warnings.some((warning) => warning.includes("unsupported_fx_overlay_skipped:bad-fx:unknown_fx")));
 });
 
 test("tiny combined render with background, chroma, subtitles, and drop-wave finalizes", { timeout: 45000 }, async () => {
