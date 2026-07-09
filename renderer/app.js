@@ -3345,8 +3345,18 @@
   function syncTransitions() {
     if (!renderGraph) return;
     const analysis = getProjectGraph();
+    const normalizedProject = renderGraph.normalizeProjectTransitions
+      ? renderGraph.normalizeProjectTransitions(state.project)
+      : null;
+    const normalizedTransitions = Array.isArray(normalizedProject?.transitions) && normalizedProject.transitions.length
+      ? normalizedProject.transitions
+      : null;
+    const transitionSource = normalizedTransitions || state.project.transitions || {};
+    if (normalizedProject?.orphanedTransitions?.length) {
+      state.project.orphanedTransitions = normalizedProject.orphanedTransitions;
+    }
     const next = {};
-    for (const [rawKey, rawValue] of Object.entries(state.project.transitions || {})) {
+    for (const [rawKey, rawValue] of Object.entries(transitionSource)) {
       const parsed = parseTransitionKey(rawKey);
       const normalized = renderGraph.normalizeTransition(rawValue, { scope: parsed.scope || rawValue?.scope || "boundary" });
       if (!normalized) continue;
@@ -3375,17 +3385,41 @@
       if (!boundary && parsed.kind === "boundary") {
         boundary = (analysis.boundaries || []).find((item) => item.idx === parsed.boundaryIdx);
       }
-      if (!boundary || !boundary.transitionEligible || Number(boundary.overlapDuration || 0) > 0.0001) continue;
+      if (!boundary) continue;
+      const gapDuration = Math.max(0, Number(boundary.gapDuration || 0));
+      const overlapDuration = Math.max(0, snapTimelineTimeSec(Number(boundary.overlapDuration || 0)));
+      let duration = normalized.type === "cut" ? 0 : clampTransitionDurationSec(normalized.duration, boundary, "boundary");
+      let leftDuration = Number(normalized.leftDuration ?? normalized.leftDurationSec);
+      let rightDuration = Number(normalized.rightDuration ?? normalized.rightDurationSec);
+      const hasCustomSpan = Number.isFinite(leftDuration) || Number.isFinite(rightDuration);
+      if (overlapDuration > 0.0001 && normalized.type !== "cut" && overlapDuration >= duration - TIMELINE_TIME_STEP_SEC) {
+        duration = overlapDuration;
+        leftDuration = 0;
+        rightDuration = overlapDuration;
+      } else if (!hasCustomSpan) {
+        leftDuration = undefined;
+        rightDuration = undefined;
+      }
       next[boundary.idx] = {
         ...normalized,
         scope: "boundary",
-        duration: normalized.type === "cut" ? 0 : clampTransitionDurationSec(normalized.duration, boundary, "boundary"),
+        duration,
+        ...(Number.isFinite(leftDuration) ? { leftDuration } : {}),
+        ...(Number.isFinite(rightDuration) ? { rightDuration } : {}),
+        ...(gapDuration > 0.1 ? { disabledReason: "gap" } : {}),
+        ...(overlapDuration > 0.0001 ? { overlapDuration } : {}),
         section: boundary.section,
         fromClipId: boundary.fromClipId,
         toClipId: boundary.toClipId
       };
     }
     state.project.transitions = next;
+    (state.project.videoClips || []).forEach((clip) => {
+      delete clip.transitionOut;
+      delete clip.transitionIn;
+      delete clip.transition;
+      delete clip.endEffect;
+    });
   }
 
   function queueMissingAudioVisuals() {
@@ -3460,38 +3494,68 @@
     );
   }
 
-  function nearestSnapTime(sec, movingItemId = null) {
+  function nearestSnapTime(sec, movingItemId = null, options = {}) {
     const snapped = snapTimelineTimeSec(sec);
     const threshold = getTimelineAutoSnapThresholdSec();
+    const movingDuration = Math.max(0, Number(options.durationSec ?? options.duration ?? 0));
+    const movingSection = options.section == null ? null : Math.max(1, Number(options.section || 1));
+    const ignoredIds = new Set([
+      movingItemId,
+      ...(Array.isArray(options.ignoreIds) ? options.ignoreIds : [])
+    ].filter(Boolean).map(String));
     let best = snapped;
     let bestDist = threshold;
     const allItems = [
       ...state.project.videoClips.map((clip) => ({
         id: clip.id,
+        section: Math.max(1, Number(clip.section || 1)),
         start: Number(clip.start || 0),
         end: getVideoClipTimelineEnd(clip)
       })),
       ...state.project.audioItems.map((audio) => ({
         id: audio.id,
+        section: Math.max(1, Number(audio.section || 1)),
         start: Number(audio.start || 0),
         end: Number(audio.start || 0) + Math.max(0, Number(audio.duration || 0))
       })),
       ...state.project.overlayItems.map((overlay) => ({
         id: overlay.id,
+        section: Math.max(1, Number(overlay.section || 1)),
         start: Number(overlay.start || 0),
         end: Number(overlay.start || 0) + Math.max(MIN_OVERLAY_CLIP_SEC, Number(overlay.duration || MIN_OVERLAY_CLIP_SEC))
       }))
     ];
     for (const item of allItems) {
-      if (movingItemId && item.id === movingItemId) continue;
+      if (ignoredIds.has(String(item.id || ""))) continue;
+      if (movingSection != null && Number(item.section || 1) !== movingSection) continue;
       const s = item.start;
       const e = item.end;
       const ds = Math.abs(sec - s);
       const de = Math.abs(sec - e);
       if (ds < bestDist) { best = s; bestDist = ds; }
       if (de < bestDist) { best = e; bestDist = de; }
+      if (movingDuration > 0) {
+        const movingEnd = sec + movingDuration;
+        const endToStart = Math.abs(movingEnd - s);
+        const endToEnd = Math.abs(movingEnd - e);
+        if (endToStart < bestDist) {
+          best = s - movingDuration;
+          bestDist = endToStart;
+        }
+        if (endToEnd < bestDist) {
+          best = e - movingDuration;
+          bestDist = endToEnd;
+        }
+      }
     }
     return bestDist <= threshold ? Math.max(0, best) : Math.max(0, snapped);
+  }
+
+  function nearestSnapPointTime(sec, movingItemId = null, options = {}) {
+    return nearestSnapTime(sec, movingItemId, {
+      ...options,
+      durationSec: 0
+    });
   }
 
   function getRegionSnapThresholdSec() {
@@ -7814,15 +7878,28 @@
     const baseStart = snapTimelineTimeSec(clip.start);
     const oldDur = Math.max(minDur, snapTimelineTimeSec(getVideoClipTimelineDuration(clip)));
     const snappedDelta = snapTimelineDeltaSec(deltaSec);
+    const section = Math.max(1, Number(clip.section || 1));
+    const ignoreIds = [clip.linkedAudioId].filter(Boolean);
     if (side === "left") {
       const maxDelta = oldDur - minDur;
       const d = Math.max(-baseStart, Math.min(maxDelta, snappedDelta));
-      clip.start = snapTimelineTimeSec(Math.max(0, baseStart + d));
-      clip.timelineDuration = Math.max(minDur, snapTimelineTimeSec(oldDur - d));
+      const fixedEnd = snapTimelineTimeSec(baseStart + oldDur);
+      const rawStart = Math.max(0, baseStart + d);
+      const snappedStart = Math.min(
+        fixedEnd - minDur,
+        nearestSnapPointTime(rawStart, clip.id, { section, ignoreIds })
+      );
+      clip.start = snapTimelineTimeSec(Math.max(0, snappedStart));
+      clip.timelineDuration = Math.max(minDur, snapTimelineTimeSec(fixedEnd - clip.start));
     } else {
       const d = Math.max(minDur - oldDur, snappedDelta);
       clip.start = baseStart;
-      clip.timelineDuration = Math.max(minDur, snapTimelineTimeSec(oldDur + d));
+      const rawEnd = Math.max(baseStart + minDur, baseStart + oldDur + d);
+      const snappedEnd = Math.max(
+        baseStart + minDur,
+        nearestSnapPointTime(rawEnd, clip.id, { section, ignoreIds })
+      );
+      clip.timelineDuration = Math.max(minDur, snapTimelineTimeSec(snappedEnd - baseStart));
     }
     clip.timelineDuration = Math.max(minDur, Number(clip.timelineDuration || minDur));
     if (clip.linkedAudioId && clip.linkMode === "linked") {
@@ -7851,16 +7928,29 @@
     const sourceIn = snapTimelineTimeSec(getAudioItemSourceIn(audio, 0));
     const sourceOut = Math.max(sourceIn + minDur, snapTimelineTimeSec(getAudioItemSourceOut(audio, oldDur)));
     const snappedDelta = snapTimelineDeltaSec(deltaSec);
+    const section = Math.max(1, Number(audio.section || 1));
     if (side === "left") {
       const d = Math.min(oldDur - minDur, Math.max(-baseStart, snappedDelta));
-      audio.start = snapTimelineTimeSec(baseStart + d);
-      audio.duration = Math.max(minDur, snapTimelineTimeSec(oldDur - d));
-      audio.sourceIn = snapTimelineTimeSec(Math.max(0, Math.min(sourceOut - minDur, sourceIn + d)));
+      const fixedEnd = snapTimelineTimeSec(baseStart + oldDur);
+      const rawStart = Math.max(0, baseStart + d);
+      const snappedStart = Math.min(
+        fixedEnd - minDur,
+        nearestSnapPointTime(rawStart, audio.id, { section })
+      );
+      const actualDelta = snapTimelineDeltaSec(snappedStart - baseStart);
+      audio.start = snapTimelineTimeSec(Math.max(0, snappedStart));
+      audio.duration = Math.max(minDur, snapTimelineTimeSec(fixedEnd - audio.start));
+      audio.sourceIn = snapTimelineTimeSec(Math.max(0, Math.min(sourceOut - minDur, sourceIn + actualDelta)));
       audio.sourceOut = Math.max(audio.sourceIn + minDur, snapTimelineTimeSec(audio.sourceIn + audio.duration));
     } else {
       audio.start = baseStart;
       audio.sourceIn = sourceIn;
-      audio.duration = Math.max(minDur, snapTimelineTimeSec(oldDur + snappedDelta));
+      const rawEnd = Math.max(baseStart + minDur, baseStart + oldDur + snappedDelta);
+      const snappedEnd = Math.max(
+        baseStart + minDur,
+        nearestSnapPointTime(rawEnd, audio.id, { section })
+      );
+      audio.duration = Math.max(minDur, snapTimelineTimeSec(snappedEnd - baseStart));
       audio.sourceOut = Math.max(audio.sourceIn + minDur, snapTimelineTimeSec(audio.sourceIn + audio.duration));
     }
     syncAudioItemTiming(audio);
@@ -7873,13 +7963,25 @@
     const baseStart = snapTimelineTimeSec(Number(overlay.start || 0));
     const oldDur = Math.max(minDur, snapTimelineTimeSec(Number(overlay.duration || minDur)));
     const snappedDelta = snapTimelineDeltaSec(deltaSec);
+    const section = Math.max(1, Number(overlay.section || 1));
     if (side === "left") {
       const d = Math.min(oldDur - minDur, Math.max(-baseStart, snappedDelta));
-      overlay.start = snapTimelineTimeSec(Math.max(0, baseStart + d));
-      overlay.duration = Math.max(minDur, snapTimelineTimeSec(oldDur - d));
+      const fixedEnd = snapTimelineTimeSec(baseStart + oldDur);
+      const rawStart = Math.max(0, baseStart + d);
+      const snappedStart = Math.min(
+        fixedEnd - minDur,
+        nearestSnapPointTime(rawStart, overlay.id, { section })
+      );
+      overlay.start = snapTimelineTimeSec(Math.max(0, snappedStart));
+      overlay.duration = Math.max(minDur, snapTimelineTimeSec(fixedEnd - overlay.start));
     } else {
       overlay.start = baseStart;
-      overlay.duration = Math.max(minDur, snapTimelineTimeSec(oldDur + snappedDelta));
+      const rawEnd = Math.max(baseStart + minDur, baseStart + oldDur + snappedDelta);
+      const snappedEnd = Math.max(
+        baseStart + minDur,
+        nearestSnapPointTime(rawEnd, overlay.id, { section })
+      );
+      overlay.duration = Math.max(minDur, snapTimelineTimeSec(snappedEnd - baseStart));
     }
   }
 
@@ -8069,27 +8171,69 @@
         const before = JSON.parse(JSON.stringify(state.project));
         const startX = e.clientX;
         const baseDuration = Number(current.duration || 0.5);
+        const resizeEdge = handle.dataset.transitionEdge || (scope === "outro" ? "left" : "right");
+        const safeNonNegative = (value, fallback) => {
+          const n = Number(value);
+          return Number.isFinite(n) && n >= 0 ? n : fallback;
+        };
+        const baseHalf = Math.max(TIMELINE_TIME_STEP_SEC, baseDuration / 2);
+        const baseLeftDuration = safeNonNegative(current.leftDuration ?? current.leftDurationSec, baseHalf);
+        const baseRightDuration = safeNonNegative(
+          current.rightDuration ?? current.rightDurationSec,
+          Math.max(TIMELINE_TIME_STEP_SEC, baseDuration - baseLeftDuration)
+        );
+        const boundaryFromClip = boundary?.fromClip || state.project.videoClips.find((item) => item.id === boundary?.fromClipId);
+        const boundaryToClip = boundary?.toClip || state.project.videoClips.find((item) => item.id === boundary?.toClipId);
+        const maxLeftDuration = Math.max(TIMELINE_TIME_STEP_SEC, boundaryFromClip ? getVideoClipTimelineDuration(boundaryFromClip) : baseDuration);
+        const maxRightDuration = Math.max(TIMELINE_TIME_STEP_SEC, boundaryToClip ? getVideoClipTimelineDuration(boundaryToClip) : baseDuration);
+        const clampSpan = (value, maxValue) => Math.max(
+          0,
+          Math.min(maxValue, snapFadeValueSec(value))
+        );
         let moved = false;
         state.ui.internalDragging = true;
+        document.body?.classList.add("transition-dragging");
+        document.body?.setAttribute("data-transition-drag-edge", resizeEdge);
 
         const onMove = (mv) => {
           const dx = mv.clientX - startX;
           if (!moved && Math.abs(dx) < 1) return;
           moved = true;
-          const deltaSec = window.PearlTimeline.pxToSeconds(scope === "outro" ? -dx : dx, state.ui.pxPerSec);
-          const nextDuration = clampTransitionDurationSec(baseDuration + deltaSec, boundary || clip, scope);
+          const deltaSec = window.PearlTimeline.pxToSeconds(dx, state.ui.pxPerSec);
           state.project = JSON.parse(JSON.stringify(before));
-          writeTransitionForTarget(target, {
-            ...current,
-            duration: nextDuration
-          });
-          showTimelineValueBubble(`${nextDuration.toFixed(2)}s`, mv.clientX, mv.clientY - 18);
+          if (target.kind === "boundary") {
+            const nextLeftDuration = resizeEdge === "left"
+              ? clampSpan(baseLeftDuration - deltaSec, maxLeftDuration)
+              : clampSpan(baseLeftDuration, maxLeftDuration);
+            const nextRightDuration = resizeEdge === "right"
+              ? clampSpan(baseRightDuration + deltaSec, maxRightDuration)
+              : clampSpan(baseRightDuration, maxRightDuration);
+            const nextDuration = snapFadeValueSec(nextLeftDuration + nextRightDuration);
+            writeTransitionForTarget(target, {
+              ...current,
+              duration: nextDuration,
+              leftDuration: nextLeftDuration,
+              rightDuration: nextRightDuration,
+              alignment: "custom"
+            });
+            showTimelineValueBubble(`${nextDuration.toFixed(2)}s`, mv.clientX, mv.clientY - 18);
+          } else {
+            const scopedDeltaSec = window.PearlTimeline.pxToSeconds(scope === "outro" ? -dx : dx, state.ui.pxPerSec);
+            const nextDuration = clampTransitionDurationSec(baseDuration + scopedDeltaSec, boundary || clip, scope);
+            writeTransitionForTarget(target, {
+              ...current,
+              duration: nextDuration
+            });
+            showTimelineValueBubble(`${nextDuration.toFixed(2)}s`, mv.clientX, mv.clientY - 18);
+          }
           renderAll();
         };
 
         const onUp = () => {
           hideTimelineValueBubble();
           state.ui.internalDragging = false;
+          document.body?.classList.remove("transition-dragging");
+          document.body?.removeAttribute("data-transition-drag-edge");
           window.removeEventListener("mousemove", onMove);
           window.removeEventListener("mouseup", onUp);
           if (moved) commitHistorySnapshot(historyBefore);
@@ -8098,6 +8242,30 @@
 
         window.addEventListener("mousemove", onMove);
         window.addEventListener("mouseup", onUp);
+      };
+    });
+    els.videoLane.querySelectorAll(".transitionBridge").forEach((bridge) => {
+      const pickBridgeResizeHandle = (event) => {
+        const rect = bridge.getBoundingClientRect();
+        if (!rect.width) return null;
+        const x = event.clientX - rect.left;
+        const band = Math.min(30, Math.max(14, rect.width / 2));
+        if (x <= band) return bridge.querySelector(".transitionDurationHandle.left");
+        if (x >= rect.width - band) return bridge.querySelector(".transitionDurationHandle.right");
+        return null;
+      };
+      bridge.onmousemove = (event) => {
+        bridge.classList.toggle("edgeResizeHover", !!pickBridgeResizeHandle(event));
+      };
+      bridge.onmouseleave = () => {
+        bridge.classList.remove("edgeResizeHover");
+      };
+      bridge.onmousedown = (event) => {
+        if (event.button !== 0) return;
+        if (event.target?.closest?.(".transitionDurationHandle")) return;
+        const handle = pickBridgeResizeHandle(event);
+        if (!handle?.onmousedown) return;
+        handle.onmousedown(event);
       };
     });
   }
@@ -8203,7 +8371,10 @@
             if (actualKind === "video") {
               const clip = state.project.videoClips.find(c => c.id === id);
               if (!clip) return;
-              clip.start = nearestSnapTime(Math.max(0, base + deltaSec), clip.id);
+              clip.start = nearestSnapTime(Math.max(0, base + deltaSec), clip.id, {
+                durationSec: getVideoClipTimelineDuration(clip),
+                section: targetSection
+              });
               clip.section = targetSection;
               if (clip.linkedAudioId && clip.linkMode === "linked") {
                 const linked = state.project.audioItems.find(a => a.id === clip.linkedAudioId);
@@ -8216,7 +8387,10 @@
             } else if (actualKind === "audio") {
               const audio = state.project.audioItems.find(a => a.id === id);
               if (!audio) return;
-              const nextStart = nearestSnapTime(Math.max(0, base + deltaSec), audio.id);
+              const nextStart = nearestSnapTime(Math.max(0, base + deltaSec), audio.id, {
+                durationSec: getAudioItemTimelineDuration(audio),
+                section: targetSection
+              });
               if (audio.linkMode === "linked" && audio.linkedVideoId) {
                 const linkedVideo = state.project.videoClips.find((item) => item.id === audio.linkedVideoId);
                 if (linkedVideo) {
@@ -8232,7 +8406,10 @@
             } else {
               const overlayItem = state.project.overlayItems.find(o => o.id === id);
               if (!overlayItem) return;
-              overlayItem.start = nearestSnapTime(Math.max(0, base + deltaSec), overlayItem.id);
+              overlayItem.start = nearestSnapTime(Math.max(0, base + deltaSec), overlayItem.id, {
+                durationSec: Math.max(MIN_OVERLAY_CLIP_SEC, Number(overlayItem.duration || MIN_OVERLAY_CLIP_SEC)),
+                section: targetSection
+              });
               overlayItem.section = targetSection;
             }
             recalcTimeline();
@@ -9226,6 +9403,7 @@
     let running = false;
     let disposed = false;
     let cycleStartMs = 0;
+    let staticRetryCount = 0;
 
     function drawFrame(currentTimeSec) {
       const rendered = overlayEngine.renderFxPreviewCanvas(canvas, overlay, {
@@ -11820,10 +11998,23 @@
 
   function createSerializableProject(project) {
     const clone = JSON.parse(JSON.stringify(project || {}));
+    const normalizedProject = renderGraph?.normalizeProjectTransitions
+      ? renderGraph.normalizeProjectTransitions(clone)
+      : null;
+    if (normalizedProject) {
+      clone.transitions = normalizedProject.transitions || [];
+      if (normalizedProject.orphanedTransitions?.length) {
+        clone.orphanedTransitions = normalizedProject.orphanedTransitions;
+      }
+    }
     (clone.videoClips || []).forEach((clip) => {
       delete clip.thumbs;
       delete clip._thumbRequestCount;
       delete clip._thumbReadyCount;
+      delete clip.transitionOut;
+      delete clip.transitionIn;
+      delete clip.transition;
+      delete clip.endEffect;
     });
     (clone.audioItems || []).forEach((audio) => {
       delete audio._analyzeQueued;

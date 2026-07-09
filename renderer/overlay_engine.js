@@ -143,6 +143,9 @@
   function clamp01(v) {
     return Math.max(0, Math.min(1, Number(v) || 0));
   }
+  function lerp(a, b, t) {
+    return Number(a || 0) + ((Number(b || 0) - Number(a || 0)) * clamp01(t));
+  }
   function easeOutCubic(t) {
     t = clamp01(t);
     return 1 - Math.pow(1 - t, 3);
@@ -156,6 +159,12 @@
   function easeOutQuart(t) {
     t = clamp01(t);
     return 1 - Math.pow(1 - t, 4);
+  }
+  function fastOutSlowIn(t) {
+    t = clamp01(t);
+    return t < 0.5
+      ? 2 * t * t
+      : 1 - Math.pow(-2 * t + 2, 3) / 2;
   }
   function easeOutBackSoft(t) {
     t = clamp01(t);
@@ -185,6 +194,119 @@
     if (hex.length === 3) hex = hex.split("").map((ch) => ch + ch).join("");
     const safe = /^[0-9a-f]{6}$/i.test(hex) ? hex : "ffffff";
     return `rgba(${parseInt(safe.slice(0, 2), 16)}, ${parseInt(safe.slice(2, 4), 16)}, ${parseInt(safe.slice(4, 6), 16)}, ${clamp(alpha, 0, 1)})`;
+  }
+  function parseRgbColor(color, fallback = { r: 97, g: 199, b: 255 }) {
+    const raw = String(color || "").trim();
+    const rgba = raw.match(/^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)/i);
+    if (rgba) {
+      return {
+        r: clamp(Number(rgba[1]), 0, 255),
+        g: clamp(Number(rgba[2]), 0, 255),
+        b: clamp(Number(rgba[3]), 0, 255)
+      };
+    }
+    let hex = raw.replace("#", "");
+    if (hex.length === 3) hex = hex.split("").map((ch) => ch + ch).join("");
+    if (/^[0-9a-f]{6}$/i.test(hex)) {
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16)
+      };
+    }
+    return fallback;
+  }
+  function getFxBaseRgb(overlay = {}, options = {}) {
+    const fallback = options.lightTheme ? { r: 37, g: 99, b: 235 } : { r: 97, g: 199, b: 255 };
+    const legacyDecorColors = new Set(["#fde68a", "#22c55e", "#cbd5e1", "#ffffff", "#ffdb4d"]);
+    const raw = String(overlay.color || "").trim().toLowerCase();
+    if (!raw || legacyDecorColors.has(raw)) return fallback;
+    return parseRgbColor(raw, fallback);
+  }
+  function getFxMonoColor(overlay = {}, alpha = 1, options = {}) {
+    const rgb = getFxBaseRgb(overlay, options);
+    return `rgba(${Math.round(rgb.r)}, ${Math.round(rgb.g)}, ${Math.round(rgb.b)}, ${clamp(alpha, 0, 1)})`;
+  }
+  function createLineFadeGradient(ctx, x1, y1, x2, y2, color, options = {}) {
+    const rgb = parseRgbColor(color, getFxBaseRgb(options.overlay || {}, options));
+    const coreAlpha = clamp(Number(options.coreAlpha ?? 0.82), 0, 1);
+    const midAlpha = clamp(Number(options.midAlpha ?? 0.42), 0, 1);
+    const edgeAlpha = clamp(Number(options.edgeAlpha ?? 0.12), 0, 1);
+    const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
+    gradient.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${edgeAlpha})`);
+    gradient.addColorStop(0.12, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${midAlpha})`);
+    gradient.addColorStop(0.5, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${coreAlpha})`);
+    gradient.addColorStop(0.88, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${midAlpha})`);
+    gradient.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${edgeAlpha})`);
+    return gradient;
+  }
+  function drawFeatheredLine(ctx, x1, y1, x2, y2, options = {}) {
+    const overlay = options.overlay || {};
+    const alpha = clamp(Number(options.alpha ?? 1), 0, 1);
+    if (alpha <= 0.001) return;
+    const width = Math.max(0.75, Number(options.width || 2));
+    const color = getFxMonoColor(overlay, 1, options);
+    const gradient = createLineFadeGradient(ctx, x1, y1, x2, y2, color, {
+      ...options,
+      overlay,
+      coreAlpha: Number(options.coreAlpha ?? 0.82) * alpha,
+      midAlpha: Number(options.midAlpha ?? 0.42) * alpha,
+      edgeAlpha: Number(options.edgeAlpha ?? 0.12) * alpha
+    });
+    ctx.save();
+    ctx.lineCap = options.lineCap || "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = getFxMonoColor(overlay, clamp(Number(options.glowAlpha ?? 0.12) * alpha, 0, 1), options);
+    ctx.lineWidth = Math.max(width * 2.8, width + 6);
+    ctx.shadowColor = getFxMonoColor(overlay, clamp(Number(options.glowAlpha ?? 0.12) * alpha, 0, 1), options);
+    ctx.shadowBlur = Math.max(4, width * 2.6);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = gradient;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  function drawSoftCoreLine(ctx, x1, y1, x2, y2, options = {}) {
+    drawFeatheredLine(ctx, x1, y1, x2, y2, {
+      ...options,
+      width: Math.max(1.2, Number(options.width || 2)),
+      coreAlpha: Number(options.coreAlpha ?? 0.78),
+      midAlpha: Number(options.midAlpha ?? 0.34),
+      edgeAlpha: Number(options.edgeAlpha ?? 0.1),
+      glowAlpha: Number(options.glowAlpha ?? 0.08)
+    });
+  }
+  function drawFeatheredRing(ctx, cx, cy, radius, options = {}) {
+    const overlay = options.overlay || {};
+    const alpha = clamp(Number(options.alpha ?? 1), 0, 1);
+    const progress = clamp(Number(options.progress ?? 1), 0, 1);
+    if (alpha <= 0.001 || radius <= 0 || progress <= 0) return;
+    const width = Math.max(1, Number(options.width || 2));
+    const start = Number(options.startAngle ?? -Math.PI / 2);
+    const end = start + (Math.PI * 2 * progress);
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = getFxMonoColor(overlay, clamp(Number(options.glowAlpha ?? 0.12) * alpha, 0, 1), options);
+    ctx.lineWidth = Math.max(width * 2.6, width + 5);
+    ctx.shadowColor = ctx.strokeStyle;
+    ctx.shadowBlur = Math.max(5, width * 2.8);
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, start, end);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = getFxMonoColor(overlay, clamp(Number(options.coreAlpha ?? 0.82) * alpha, 0, 1), options);
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, start, end);
+    ctx.stroke();
+    ctx.restore();
   }
   function getManualAlpha(localTime, total, overlay) {
     let alpha = 1;
@@ -596,15 +718,15 @@
   function getPointPopLineBursts(durationSec) {
     const total = Math.max(MIN_OVERLAY_CLIP_SEC, Number(durationSec || 0.52));
     const echoOffset = Math.max(MIN_OVERLAY_CLIP_SEC, Math.min(total * 0.34, Math.max(MIN_OVERLAY_CLIP_SEC, total - MIN_OVERLAY_CLIP_SEC)));
-    return [{ startOffset: 0, durationSec: Math.max(MIN_OVERLAY_CLIP_SEC, total * 0.48), color: null, opacityMultiplier: 1 }, { startOffset: echoOffset, durationSec: Math.max(MIN_OVERLAY_CLIP_SEC, total - echoOffset), color: "#ffffff", opacityMultiplier: 0.96 }];
+    return [{ startOffset: 0, durationSec: Math.max(MIN_OVERLAY_CLIP_SEC, total * 0.48), color: null, opacityMultiplier: 1 }, { startOffset: echoOffset, durationSec: Math.max(MIN_OVERLAY_CLIP_SEC, total - echoOffset), color: null, opacityMultiplier: 0.34 }];
   }
   function drawPointPopLineBurst(ctx, frame, overlay, phase, burst, seed) {
     const cx = frame.left + frame.width * clamp(Number(overlay.x ?? 0.5), 0, 1);
     const cy = frame.top + frame.height * clamp(Number(overlay.y ?? 0.5), 0, 1);
-    const count = Math.max(8, Math.min(14, Math.round(Number(overlay.lineCount || 10))));
+    const count = Math.max(5, Math.min(10, Math.round(Number(overlay.lineCount || 6))));
     const baseRadius = Math.max(2, frame.minSize * Math.max(0.01, Number(overlay.radius || 0.07)));
     const baseLength = Math.max(4, frame.minSize * Math.max(0.01, Number(overlay.lineLength || 0.045)));
-    const strokeWidth = Math.max(2, Number(overlay.strokeWidth || 5) * frame.scale);
+    const strokeWidth = Math.max(1.1, Number(overlay.strokeWidth || 2.2) * frame.scale);
     const spread = clamp(Number(overlay.spreadAmount ?? overlay.jitter ?? 0.18), 0, 1);
     const burstLocalTime = Number(phase.localTime || 0) - Number(burst.startOffset || 0);
     const burstDuration = Math.max(MIN_OVERLAY_CLIP_SEC, Number(burst.durationSec || 0.2));
@@ -633,20 +755,15 @@
       const x2 = cx + (Math.cos(angle) * (inner + length));
       const y2 = cy + (Math.sin(angle) * (inner + length));
       const burstAlpha = clamp(Number(phase.alpha || 1) * Number(burst.opacityMultiplier || 1) * alphaFactor, 0, 1);
-      ctx.globalAlpha = clamp(burstAlpha * 0.28, 0, 1);
-      ctx.strokeStyle = "rgba(0,0,0,0.92)";
-      ctx.lineWidth = Math.max(2.4, strokeWidth * 1.32);
-      ctx.beginPath();
-      ctx.moveTo(x1, y1 + Math.max(0.5, strokeWidth * 0.18));
-      ctx.lineTo(x2, y2 + Math.max(0.5, strokeWidth * 0.18));
-      ctx.stroke();
-      ctx.globalAlpha = burstAlpha;
-      ctx.strokeStyle = burst.color || overlay.color || "#38bdf8";
-      ctx.lineWidth = strokeWidth;
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
+      drawFeatheredLine(ctx, x1, y1, x2, y2, {
+        overlay,
+        alpha: burstAlpha,
+        width: strokeWidth,
+        coreAlpha: 0.78,
+        midAlpha: 0.34,
+        edgeAlpha: 0.1,
+        glowAlpha: 0.08
+      });
     }
     ctx.restore();
   }
@@ -660,83 +777,38 @@
     const cy = frame.top + frame.height * clamp(Number(overlay.y ?? 0.5), 0, 1);
     const radiusX = Math.max(8, frame.minSize * Number(overlay.radiusX || overlay.radius || overlay.size || 0.11));
     const radiusY = Math.max(8, frame.minSize * Number(overlay.radiusY || overlay.radius || overlay.size || 0.11));
-    const strokeWidth = Math.max(2, Number(overlay.strokeWidth || 6) * frame.scale);
-    const sparkleCount = Math.max(2, Math.round(Number(overlay.sparkleCount || 8)));
-    const sparkleDistance = frame.minSize * Number(overlay.sparkleDistance || 0.06);
-    const seed = hashString(overlay.id);
+    const ringRadius = Math.max(8, (radiusX + radiusY) / 2);
+    const strokeWidth = Math.max(1.15, Number(overlay.strokeWidth || 2.2) * frame.scale);
     ctx.save();
-    ctx.globalAlpha = clamp(phase.alpha, 0, 1);
-    ctx.strokeStyle = withAlpha(overlay.color || "#60a5fa", 0.22);
-    ctx.lineWidth = Math.max(1.4, strokeWidth * 1.7);
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, radiusX + (strokeWidth * 0.42), radiusY + (strokeWidth * 0.42), 0, -Math.PI / 2, (-Math.PI / 2) + (Math.PI * 2 * clamp(phase.drawProgress, 0, 1)), false);
-    ctx.stroke();
-    ctx.strokeStyle = overlay.color || "#ffdb4d";
-    ctx.lineWidth = strokeWidth;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, radiusX, radiusY, 0, -Math.PI / 2, (-Math.PI / 2) + (Math.PI * 2 * clamp(phase.drawProgress, 0, 1)), false);
-    ctx.stroke();
-    const afterDraw = Math.max(0, phase.localTime - Math.max(MIN_OVERLAY_CLIP_SEC, Number(overlay.drawDuration || 1)));
-    for (let i = 0; i < sparkleCount; i++) {
-      const delay = i * 0.08;
-      const activeDuration = 0.42;
-      const local = afterDraw - delay;
-      if (local < 0 || local > activeDuration) continue;
-      const p = local / activeDuration;
-      const grow = p < 0.5 ? (p / 0.5) : ((1 - p) / 0.5);
-      const travel = 1 - Math.pow(1 - clamp(p, 0, 1), 3);
-      const angle = ((Math.PI * 2) / sparkleCount) * i + ((seed % 360) * Math.PI / 180);
-      const edgeRadius = 1 / Math.sqrt((Math.pow(Math.cos(angle), 2) / Math.pow(radiusX, 2)) + (Math.pow(Math.sin(angle), 2) / Math.pow(radiusY, 2)));
-      const startDist = edgeRadius + Math.max(4, strokeWidth * 0.55) + (travel * sparkleDistance * 0.35);
-      const lineLength = Math.max(4, sparkleDistance * (0.18 + (0.38 * grow)));
-      ctx.globalAlpha = clamp(phase.alpha * grow * 0.95, 0, 1);
-      ctx.lineWidth = Math.max(1.5, strokeWidth * 0.28);
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(angle) * startDist, cy + Math.sin(angle) * startDist);
-      ctx.lineTo(cx + Math.cos(angle) * (startDist + lineLength), cy + Math.sin(angle) * (startDist + lineLength));
-      ctx.stroke();
-    }
+    ctx.globalCompositeOperation = "screen";
+    drawFeatheredRing(ctx, cx, cy, ringRadius, {
+      overlay,
+      alpha: phase.alpha,
+      progress: easeOutCubic(phase.drawProgress),
+      width: strokeWidth,
+      coreAlpha: 0.78,
+      glowAlpha: 0.12
+    });
     ctx.restore();
   }
   function drawUnderlineEffect(ctx, frame, overlay, phase) {
     const totalWidth = Math.max(24, frame.width * Number(overlay.width || overlay.size || 0.24));
-    const thickness = Math.max(3, Number(overlay.lineThickness || 10) * frame.scale);
+    const thickness = Math.max(1.25, Number(overlay.lineThickness || 2.2) * frame.scale);
     const centerX = frame.left + frame.width * clamp(Number(overlay.x ?? 0.5), 0, 1);
     const baseY = frame.top + frame.height * clamp(Number(overlay.y ?? 0.8), 0, 1);
     const lineStart = centerX - (totalWidth / 2);
-    const drawWidth = totalWidth * clamp(phase.drawProgress, 0, 1);
-    const wipe = clamp(phase.fadeProgress || 0, 0, 1);
-    const visibleStart = lineStart + (totalWidth * wipe);
-    const visibleWidth = Math.max(0, drawWidth - (totalWidth * wipe));
-    const accentWidth = Math.max(10, Math.min(48, totalWidth * 0.12));
-    const accentX = clamp(lineStart + drawWidth - accentWidth, lineStart, lineStart + totalWidth);
-    ctx.save();
-    ctx.globalAlpha = clamp(phase.alpha * 0.28, 0, 1);
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(0,0,0,0.92)";
-    ctx.lineWidth = Math.max(3.2, thickness * 1.32);
-    ctx.beginPath();
-    ctx.moveTo(visibleStart, baseY + Math.max(0.5, thickness * 0.18));
-    ctx.lineTo(visibleStart + Math.max(1, visibleWidth), baseY + Math.max(0.5, thickness * 0.18));
-    ctx.stroke();
-    ctx.globalAlpha = clamp(phase.alpha, 0, 1);
-    ctx.lineCap = "round";
-    ctx.strokeStyle = overlay.color || "#38bdf8";
-    ctx.lineWidth = thickness;
-    ctx.beginPath();
-    ctx.moveTo(visibleStart, baseY);
-    ctx.lineTo(visibleStart + Math.max(1, visibleWidth), baseY);
-    ctx.stroke();
-    ctx.globalAlpha = clamp(phase.alpha * 0.92, 0, 1);
-    ctx.strokeStyle = overlay.accentColor || "#ffffff";
-    ctx.lineWidth = Math.max(1, thickness * 0.42);
-    ctx.beginPath();
-    ctx.moveTo(accentX, baseY - Math.max(1, thickness * 0.1));
-    ctx.lineTo(Math.min(accentX + accentWidth, lineStart + totalWidth), baseY - Math.max(1, thickness * 0.1));
-    ctx.stroke();
-    ctx.restore();
+    const reveal = easeOutQuart(phase.drawProgress);
+    const lineEnd = lineStart + Math.max(1, totalWidth * reveal);
+    drawSoftCoreLine(ctx, lineStart, baseY, lineEnd, baseY, {
+      overlay,
+      alpha: phase.alpha,
+      width: thickness,
+      lineCap: "round",
+      coreAlpha: 0.82,
+      midAlpha: 0.38,
+      edgeAlpha: 0.1,
+      glowAlpha: 0.08
+    });
   }
   function drawFocusBoxEffect(ctx, frame, overlay, phase, options = {}) {
     const boxWidth = Math.max(36, frame.width * Math.max(0.08, Number(overlay.boxWidth || 0.28)));
@@ -749,11 +821,6 @@
     if (options.previewMode === "palette" || options.hideEditorChrome) {
       const corner = Math.min(boxWidth, boxHeight) * 0.22;
       const progress = clamp(phase.drawProgress, 0, 1);
-      ctx.strokeStyle = withAlpha(overlay.color || "#38bdf8", 0.78);
-      ctx.lineWidth = Math.max(1.4, strokeWidth * 0.48);
-      ctx.lineCap = "round";
-      ctx.shadowColor = withAlpha(overlay.color || "#38bdf8", 0.28);
-      ctx.shadowBlur = Math.max(4, strokeWidth * 1.2);
       [
         [x, y, 1, 1],
         [x + boxWidth, y, -1, 1],
@@ -762,11 +829,16 @@
       ].forEach(([px, py, sx, sy], index) => {
         const local = clamp((progress - (index * 0.045)) / 0.82, 0, 1);
         if (local <= 0) return;
-        ctx.beginPath();
-        ctx.moveTo(px, py + (sy * corner * local));
-        ctx.lineTo(px, py);
-        ctx.lineTo(px + (sx * corner * local), py);
-        ctx.stroke();
+        drawSoftCoreLine(ctx, px, py + (sy * corner * local), px, py, {
+          overlay,
+          alpha: phase.alpha,
+          width: Math.max(1.2, strokeWidth * 0.34)
+        });
+        drawSoftCoreLine(ctx, px, py, px + (sx * corner * local), py, {
+          overlay,
+          alpha: phase.alpha,
+          width: Math.max(1.2, strokeWidth * 0.34)
+        });
       });
       ctx.restore();
       return;
@@ -791,15 +863,19 @@
     const endY = startY + Math.sin(angle) * totalLength;
     const strokeWidth = Math.max(2, Number(overlay.strokeWidth || 6) * frame.scale);
     ctx.save();
-    ctx.globalAlpha = clamp(phase.alpha, 0, 1);
-    ctx.strokeStyle = overlay.color || "#38bdf8";
-    ctx.lineCap = "round";
-    ctx.lineWidth = strokeWidth;
-    drawLineSegment(ctx, startX, startY, endX, endY, phase.drawProgress);
-    ctx.globalAlpha = clamp(phase.alpha * 0.92, 0, 1);
-    ctx.strokeStyle = overlay.accentColor || "#ffffff";
-    ctx.lineWidth = Math.max(1.25, strokeWidth * 0.4);
-    drawLineSegment(ctx, startX + 2, startY - 1, endX, endY, phase.drawProgress);
+    const reveal = easeOutQuart(phase.drawProgress);
+    drawSoftCoreLine(
+      ctx,
+      startX,
+      startY,
+      startX + ((endX - startX) * reveal),
+      startY + ((endY - startY) * reveal),
+      {
+        overlay,
+        alpha: phase.alpha,
+        width: Math.max(1.2, strokeWidth * 0.42)
+      }
+    );
     ctx.restore();
   }
   function drawSoftSpotlightEffect(ctx, frame, overlay, phase) {
@@ -823,64 +899,58 @@
   }
   function drawHighlightBarSweepEffect(ctx, frame, overlay, phase) {
     const totalWidth = Math.max(48, frame.width * Math.max(0.08, Number(overlay.width || 0.34)));
-    const barHeight = Math.max(16, frame.height * Math.max(0.03, Number(overlay.boxHeight || 0.12)));
+    const barHeight = Math.max(2, Math.min(12, frame.height * Math.max(0.01, Number(overlay.boxHeight || 0.035))));
     const x = frame.left + frame.width * clamp(Number(overlay.x ?? 0.5), 0, 1) - (totalWidth / 2);
-    const y = frame.top + frame.height * clamp(Number(overlay.y ?? 0.42), 0, 1) - (barHeight / 2);
-    const visibleWidth = Math.max(2, totalWidth * clamp(phase.drawProgress, 0, 1));
-    const accentWidth = Math.max(10, Math.min(44, totalWidth * 0.14));
-    ctx.save();
-    ctx.globalAlpha = clamp(phase.alpha, 0, 1);
-    ctx.fillStyle = withAlpha(overlay.color || "#fde68a", clamp(phase.alpha, 0, 1));
-    roundedRectPath(ctx, x, y, visibleWidth, barHeight, barHeight / 2);
-    ctx.fill();
-    const accentX = clamp(x + visibleWidth - accentWidth, x, x + totalWidth - accentWidth);
-    ctx.fillStyle = withAlpha(overlay.accentColor || "#ffffff", clamp(phase.alpha * 0.82, 0, 1));
-    roundedRectPath(ctx, accentX, y + Math.max(2, barHeight * 0.18), accentWidth, Math.max(4, barHeight * 0.22), Math.max(2, barHeight * 0.1));
-    ctx.fill();
-    ctx.restore();
+    const y = frame.top + frame.height * clamp(Number(overlay.y ?? 0.42), 0, 1);
+    const reveal = easeOutQuart(phase.drawProgress);
+    drawFeatheredLine(ctx, x, y, x + (totalWidth * reveal), y, {
+      overlay,
+      alpha: phase.alpha,
+      width: barHeight,
+      coreAlpha: 0.34,
+      midAlpha: 0.2,
+      edgeAlpha: 0.06,
+      glowAlpha: 0.1,
+      lineCap: "round"
+    });
   }
   function drawCheckpointPopEffect(ctx, frame, overlay, phase) {
-    drawPointPopLineEffect(ctx, frame, { ...overlay, lineCount: overlay.lineCount || 8, radius: overlay.radius || 0.052, lineLength: overlay.lineLength || 0.032, strokeWidth: overlay.strokeWidth || 4.5, duration: phase.durationSec || overlay.duration || 0.68, opacity: Math.min(1, Number(overlay.opacity ?? 0.98)) }, { ...phase, durationSec: phase.durationSec || overlay.duration || 0.68 });
+    drawPointPopLineEffect(ctx, frame, { ...overlay, lineCount: overlay.lineCount || 6, radius: overlay.radius || 0.04, lineLength: overlay.lineLength || 0.026, strokeWidth: overlay.strokeWidth || 2.2, duration: phase.durationSec || overlay.duration || 0.68, opacity: Math.min(1, Number(overlay.opacity ?? 0.86)) }, { ...phase, durationSec: phase.durationSec || overlay.duration || 0.68 });
     const cx = frame.left + frame.width * clamp(Number(overlay.x ?? 0.5), 0, 1);
     const cy = frame.top + frame.height * clamp(Number(overlay.y ?? 0.48), 0, 1);
-    const size = Math.max(14, frame.minSize * Math.max(0.012, Number(overlay.radius || 0.052)) * 1.4);
-    const scale = 0.82 + (0.18 * clamp(phase.drawProgress, 0, 1));
-    const w = size * scale;
-    const h = Math.max(12, size * 0.74 * scale);
-    ctx.save();
-    ctx.globalAlpha = clamp(phase.alpha, 0, 1);
-    ctx.fillStyle = overlay.color || "#22c55e";
-    roundedRectPath(ctx, cx - (w / 2), cy - (h / 2), w, h, h / 2);
-    ctx.fill();
-    ctx.strokeStyle = overlay.accentColor || "#ffffff";
-    ctx.lineWidth = Math.max(1.5, Number(overlay.strokeWidth || 4.5) * frame.scale * 0.26);
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(cx - (w * 0.18), cy + (h * 0.02));
-    ctx.lineTo(cx - (w * 0.04), cy + (h * 0.18));
-    ctx.lineTo(cx + (w * 0.2), cy - (h * 0.16));
-    ctx.stroke();
-    ctx.restore();
+    const radius = Math.max(4, frame.minSize * Math.max(0.008, Number(overlay.radius || 0.035)) * (0.75 + (0.25 * fastOutSlowIn(phase.drawProgress))));
+    drawFeatheredRing(ctx, cx, cy, radius, {
+      overlay,
+      alpha: phase.alpha,
+      progress: 1,
+      width: Math.max(1.1, Number(overlay.strokeWidth || 2.1) * frame.scale),
+      coreAlpha: 0.74,
+      glowAlpha: 0.1
+    });
+    drawSoftCoreLine(ctx, cx - radius * 1.8, cy + radius * 1.45, cx + radius * 1.8, cy + radius * 1.45, {
+      overlay,
+      alpha: phase.alpha * 0.76,
+      width: Math.max(1, Number(overlay.strokeWidth || 2) * frame.scale * 0.72)
+    });
   }
   function drawSectionDividerSlideEffect(ctx, frame, overlay, phase) {
     const totalWidth = Math.max(80, frame.width * Math.max(0.16, Number(overlay.width || 0.78)));
-    const thickness = Math.max(2, Number(overlay.lineThickness || 4) * frame.scale);
+    const thickness = Math.max(1.25, Number(overlay.lineThickness || 2.2) * frame.scale);
     const targetCenterX = frame.left + frame.width * clamp(Number(overlay.x ?? 0.5), 0, 1);
     const y = frame.top + frame.height * clamp(Number(overlay.y ?? 0.24), 0, 1);
     const slideTravel = Math.min(80, totalWidth * 0.18);
     const progress = easeOutQuart(phase.drawProgress);
     const currentX = (targetCenterX - (totalWidth / 2)) - ((1 - progress) * slideTravel);
     const visibleWidth = Math.max(2, totalWidth * (0.34 + (0.66 * progress)));
-    const accentX = currentX + Math.max(8, visibleWidth * 0.18);
-    ctx.save();
-    ctx.globalAlpha = clamp(phase.alpha, 0, 1);
-    ctx.fillStyle = overlay.color || "#cbd5e1";
-    roundedRectPath(ctx, currentX, y - (thickness / 2), visibleWidth, thickness, thickness / 2);
-    ctx.fill();
-    ctx.fillStyle = overlay.accentColor || "#38bdf8";
-    roundedRectPath(ctx, accentX, y - Math.max(1, thickness * 0.45), Math.max(24, totalWidth * 0.16), Math.max(2, thickness * 0.9), Math.max(1, thickness * 0.45));
-    ctx.fill();
-    ctx.restore();
+    drawSoftCoreLine(ctx, currentX, y, currentX + visibleWidth, y, {
+      overlay,
+      alpha: phase.alpha,
+      width: thickness,
+      coreAlpha: 0.82,
+      midAlpha: 0.38,
+      edgeAlpha: 0.1,
+      glowAlpha: 0.08
+    });
   }
   function drawDropWaveThumbnailEffect(ctx, frame, overlay, phase) {
     const state = getDropWaveDistortionState(frame, overlay, phase);
@@ -890,22 +960,25 @@
     const outerRadius = Math.max(innerRadius + 2, previewRadius);
     const waveRadius = Math.max(innerRadius + 6, innerRadius + (outerRadius - innerRadius) * easeOutCubic(Math.min(1, state.localTime * state.speed * 0.75)));
     ctx.save();
-    ctx.globalAlpha = Math.max(0.1, state.temporal * 0.9);
+    ctx.globalAlpha = Math.max(0.04, state.temporal * 0.58);
     const core = ctx.createRadialGradient(state.cx, state.cy, innerRadius * 0.1, state.cx, state.cy, outerRadius);
-    core.addColorStop(0, "rgba(255,255,255,0.22)");
-    core.addColorStop(0.32, "rgba(196,209,224,0.16)");
-    core.addColorStop(0.68, "rgba(108,122,139,0.08)");
+    const rgb = getFxBaseRgb(overlay);
+    core.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.18)`);
+    core.addColorStop(0.32, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.11)`);
+    core.addColorStop(0.68, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.05)`);
     core.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = core;
     ctx.beginPath();
     ctx.arc(state.cx, state.cy, outerRadius, 0, Math.PI * 2);
     ctx.fill();
-    ctx.globalAlpha = Math.max(0.08, state.temporal * 0.52);
-    ctx.strokeStyle = "rgba(255,255,255,0.42)";
-    ctx.lineWidth = Math.max(1.5, frame.scale * 2.2);
-    ctx.beginPath();
-    ctx.arc(state.cx, state.cy, waveRadius, 0, Math.PI * 2);
-    ctx.stroke();
+    drawFeatheredRing(ctx, state.cx, state.cy, waveRadius, {
+      overlay,
+      alpha: Math.max(0.08, state.temporal * 0.44),
+      width: Math.max(1, frame.scale * 1.4),
+      coreAlpha: 0.56,
+      midAlpha: 0.24,
+      glowAlpha: 0.06
+    });
     ctx.restore();
   }
   function drawZoomFocusEffect(ctx, frame, overlay, phase, options = {}) {

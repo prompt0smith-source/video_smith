@@ -26,6 +26,15 @@ function assertPlainObject(actual, expected) {
   assert.deepEqual(JSON.parse(JSON.stringify(actual)), expected);
 }
 
+function readPngSize(filePath) {
+  const buffer = fs.readFileSync(filePath);
+  assert.equal(buffer.toString("ascii", 1, 4), "PNG");
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20)
+  };
+}
+
 function loadMainHarness() {
   const mainPath = path.join(repoRoot, "main.js");
   const realRequire = createRequire(mainPath);
@@ -491,6 +500,32 @@ test("preview aspect frame and custom font picker stay wired", () => {
   assert.match(mainSource, /resolveVerifiedRenderFont\(overlay/);
 });
 
+test("visible app branding uses VideoS while VideoSmith project identity stays intact", () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+  const mainSource = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
+  const htmlSource = fs.readFileSync(path.join(repoRoot, "renderer", "index.html"), "utf8");
+  const cssSource = fs.readFileSync(path.join(repoRoot, "renderer", "styles.css"), "utf8");
+
+  assert.equal(pkg.productName, "VideoS");
+  assert.equal(pkg.build.productName, "VideoS");
+  assert.equal(pkg.build.nsis.shortcutName, "VideoS");
+  assert.match(mainSource, /app\.setName\("VideoS"\)/);
+  assert.match(mainSource, /title: "VideoS"/);
+  assert.match(mainSource, /path\.join\(__dirname, "Icon\.ico"\)/);
+  assert.match(htmlSource, /<title>VideoS<\/title>/);
+  assert.match(htmlSource, /class="brandLogo"/);
+  assert.match(htmlSource, /src="\.\/assets\/videosmith_logo\.png"/);
+  assert.match(htmlSource, /<span class="brandName">VideoS<\/span>/);
+  assert.match(cssSource, /\.brandMark/);
+  assert.match(cssSource, /--brand-tile-bg/);
+  assert.match(cssSource, /object-fit:cover/);
+  assert.match(mainSource, /filters: \[\{ name: "VideoSmith Project"/);
+
+  assert.deepEqual(readPngSize(path.join(repoRoot, "Icon.png")), { width: 1024, height: 1024 });
+  assert.deepEqual(readPngSize(path.join(repoRoot, "renderer", "assets", "videosmith_logo.png")), { width: 1024, height: 1024 });
+  assert.ok(fs.statSync(path.join(repoRoot, "Icon.ico")).size > 0);
+});
+
 test("VideoSmith project files, preview resize, and compact timeline controls stay wired", () => {
   const mainSource = fs.readFileSync(path.join(repoRoot, "main.js"), "utf8");
   const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
@@ -565,10 +600,157 @@ test("FX palette previews render over city background without editor chrome", ()
   assert.match(overlaySource, /parentBounds\.width/);
   assert.match(overlaySource, /options\.previewMode === "palette" \|\| options\.hideEditorChrome/);
   assert.match(overlaySource, /drawBackground\(ctx, frame\.left, frame\.top, frame\.width, frame\.height/);
-  assert.match(effectSource, /easing: "easeOutBackSoft"/);
+  assert.match(effectSource, /point_pop_line[\s\S]*easing: "easeOutQuart"/);
+  assert.match(effectSource, /checkpoint_pop[\s\S]*easing: "easeOutQuart"/);
   assert.match(effectSource, /easing: "easeOutQuart"/);
   assert.match(cssSource, /--palette-card-border/);
   assert.match(cssSource, /\.palettePreviewCanvas\{[\s\S]*visibility:visible/);
+});
+
+test("FX drawing contract uses one-tone feathered helpers and no underline accent block", () => {
+  const overlaySource = fs.readFileSync(path.join(repoRoot, "renderer", "overlay_engine.js"), "utf8");
+  const effectSource = fs.readFileSync(path.join(repoRoot, "renderer", "effect_defs.js"), "utf8");
+  const cssSource = fs.readFileSync(path.join(repoRoot, "renderer", "styles.css"), "utf8");
+  const harnessSource = fs.readFileSync(path.join(repoRoot, "HARNESS.md"), "utf8");
+
+  assert.match(overlaySource, /function lerp\(a, b, t\)/);
+  assert.match(overlaySource, /function fastOutSlowIn\(t\)/);
+  assert.match(overlaySource, /function getFxMonoColor/);
+  assert.match(overlaySource, /function createLineFadeGradient/);
+  assert.match(overlaySource, /gradient\.addColorStop\(0\.12/);
+  assert.match(overlaySource, /function drawFeatheredLine/);
+  assert.match(overlaySource, /function drawFeatheredRing/);
+  assert.match(overlaySource, /function drawSoftCoreLine/);
+  assert.match(overlaySource, /function drawUnderlineEffect[\s\S]*drawSoftCoreLine/);
+  assert.doesNotMatch(overlaySource, /accentWidth[\s\S]*drawUnderlineEffect/);
+  assert.match(effectSource, /overlayType: "underline"[\s\S]*lineThickness: 2\.2/);
+  assert.match(effectSource, /overlayType: "highlight_bar_sweep"[\s\S]*color: "#61c7ff"/);
+  assert.match(effectSource, /overlayType: "checkpoint_pop"[\s\S]*color: "#61c7ff"/);
+  assert.match(cssSource, /--fx-accent-rgb:97, 199, 255/);
+  assert.match(cssSource, /--transition-bridge-bg:/);
+  assert.match(harnessSource, /Visual Design Contract/);
+  assert.match(harnessSource, /Transition Model Contract/);
+});
+
+test("seam transition migration converts legacy clip transitions and preserves orphans", () => {
+  const renderGraph = require(path.join(repoRoot, "lib", "render_graph.js"));
+  const project = {
+    videoClips: [
+      { id: "a", section: 1, start: 0, in: 0, out: 1, timelineDuration: 1, transitionOut: { type: "cross", duration: 0.4, updatedAt: "2026-01-01T00:00:00.000Z" } },
+      { id: "b", section: 1, start: 1, in: 0, out: 1, timelineDuration: 1 },
+      { id: "c", section: 1, start: 3, in: 0, out: 1, timelineDuration: 1, transitionOut: { type: "fade", duration: 0.3 } }
+    ],
+    transitions: []
+  };
+  const normalized = renderGraph.normalizeProjectTransitions(project);
+  assert.equal(Array.isArray(normalized.transitions), true);
+  assert.equal(normalized.transitions.length, 1);
+  assert.equal(normalized.transitions[0].fromClipId, "a");
+  assert.equal(normalized.transitions[0].toClipId, "b");
+  assert.equal(normalized.transitions[0].seamTime, 1);
+  assert.equal(normalized.transitions[0].alignment, "center");
+  assert.equal(normalized.orphanedTransitions.length, 1);
+
+  const analysis = renderGraph.analyzeProject(normalized);
+  const transition = renderGraph.resolveBoundaryTransition(analysis, analysis.boundaries[0]);
+  assert.equal(transition.type, "cross");
+  assert.equal(transition.fromClipId, "a");
+  assert.equal(transition.toClipId, "b");
+
+  const edgeKeyProject = {
+    videoClips: [
+      { id: "edge-a", section: 1, start: 0, in: 0, out: 1, timelineDuration: 1 },
+      { id: "edge-b", section: 1, start: 1, in: 0, out: 1, timelineDuration: 1 }
+    ],
+    transitions: {
+      "outro:edge-a": { type: "fade", clipId: "edge-a", scope: "outro", duration: 0.35 }
+    }
+  };
+  const edgeNormalized = renderGraph.normalizeProjectTransitions(edgeKeyProject);
+  assert.equal(edgeNormalized.transitions.length, 1);
+  assert.equal(edgeNormalized.transitions[0].fromClipId, "edge-a");
+  assert.equal(edgeNormalized.transitions[0].toClipId, "edge-b");
+  assert.equal(edgeNormalized.transitions[0].scope, "boundary");
+
+  const customSpanProject = {
+    videoClips: [
+      { id: "span-a", section: 1, start: 0, in: 0, out: 2, timelineDuration: 2 },
+      { id: "span-b", section: 1, start: 2, in: 0, out: 2, timelineDuration: 2 }
+    ],
+    transitions: {
+      0: { type: "cross", duration: 0.8, leftDuration: 0.3, rightDuration: 0.7 }
+    }
+  };
+  const customNormalized = renderGraph.normalizeProjectTransitions(customSpanProject);
+  assert.equal(customNormalized.transitions[0].leftDuration, 0.3);
+  assert.equal(customNormalized.transitions[0].rightDuration, 0.7);
+  assert.equal(customNormalized.transitions[0].duration, 1);
+  const customAnalysis = renderGraph.analyzeProject(customNormalized);
+  const customTransition = renderGraph.resolveBoundaryTransition(customAnalysis, customAnalysis.boundaries[0]);
+  assert.equal(customTransition.windowStart, 1.7);
+  assert.equal(customTransition.windowEnd, 2.7);
+
+  const overlapTransitionProject = {
+    videoClips: [
+      { id: "overlap-a", section: 1, start: 0, in: 0, out: 2, timelineDuration: 2 },
+      { id: "overlap-b", section: 1, start: 1.4, in: 0, out: 2, timelineDuration: 2 }
+    ],
+    transitions: {
+      0: { type: "blur_slide_left", duration: 0.2 }
+    }
+  };
+  const overlapNormalized = renderGraph.normalizeProjectTransitions(overlapTransitionProject);
+  assert.equal(overlapNormalized.transitions.length, 1);
+  assert.ok(Math.abs(overlapNormalized.transitions[0].duration - 0.6) < 1e-9);
+  assert.equal(overlapNormalized.transitions[0].leftDuration, 0);
+  assert.ok(Math.abs(overlapNormalized.transitions[0].rightDuration - 0.6) < 1e-9);
+  const overlapAnalysis = renderGraph.analyzeProject(overlapNormalized);
+  const overlapTransition = renderGraph.resolveBoundaryTransition(overlapAnalysis, overlapAnalysis.boundaries[0]);
+  assert.equal(overlapTransition.type, "blur_slide_left");
+  assert.equal(overlapTransition.windowStart, 1.4);
+  assert.equal(overlapTransition.windowEnd, 2);
+  const overlapState = renderGraph.resolveVideoStateAtTime(overlapAnalysis, 1.7);
+  assert.equal(overlapState.kind, "stacked_transition");
+  assert.equal(overlapState.transitionType, "blur_slide_left");
+});
+
+test("timeline transition bridge suppresses duplicate fade handles", () => {
+  const timelineSource = fs.readFileSync(path.join(repoRoot, "renderer", "timeline.js"), "utf8");
+  const appSource = fs.readFileSync(path.join(repoRoot, "renderer", "app.js"), "utf8");
+  const cssSource = fs.readFileSync(path.join(repoRoot, "renderer", "styles.css"), "utf8");
+  assert.match(timelineSource, /boundaryTransitionByClipEdge/);
+  assert.match(timelineSource, /fadeInLockedByTransition/);
+  assert.match(timelineSource, /fadeOutLockedByTransition/);
+  assert.match(timelineSource, /if \(!introSeamTransition\)/);
+  assert.match(timelineSource, /if \(!outroSeamTransition\)/);
+  assert.match(timelineSource, /transitionShortName/);
+  assert.match(timelineSource, /appendDurationHandle\("left"\)/);
+  assert.match(timelineSource, /appendDurationHandle\("right"\)/);
+  assert.match(timelineSource, /transition\?\.leftDuration/);
+  assert.match(timelineSource, /Math\.max\(\s*0,\s*Number\(transition\?\.leftDuration/);
+  assert.match(appSource, /handle\.dataset\.transitionEdge/);
+  assert.match(appSource, /baseLeftDuration - deltaSec/);
+  assert.match(appSource, /baseRightDuration \+ deltaSec/);
+  assert.match(appSource, /leftDuration: nextLeftDuration/);
+  assert.match(appSource, /rightDuration: nextRightDuration/);
+  assert.match(appSource, /durationSec: getVideoClipTimelineDuration\(clip\)/);
+  assert.match(appSource, /document\.body\?\.classList\.add\("transition-dragging"\)/);
+  assert.match(appSource, /pickBridgeResizeHandle/);
+  assert.match(appSource, /bridge\.classList\.toggle\("edgeResizeHover"/);
+  assert.match(appSource, /handle\.onmousedown\(event\)/);
+  assert.match(appSource, /renderGraph\.normalizeProjectTransitions\(state\.project\)/);
+  assert.match(appSource, /renderGraph\.normalizeProjectTransitions\(clone\)/);
+  assert.match(appSource, /delete clip\.transitionOut/);
+  assert.match(cssSource, /\.transitionBridge::before/);
+  assert.match(cssSource, /\.transitionBridge::after/);
+  assert.match(cssSource, /\.transitionDurationHandle\.left/);
+  assert.match(cssSource, /\.transitionDurationHandle\.right/);
+  assert.match(cssSource, /\.transitionDurationHandle::after/);
+  assert.match(cssSource, /\.transitionBridge\.edgeResizeHover/);
+  assert.match(cssSource, /pointer-events:auto !important/);
+  assert.match(cssSource, /cursor:ew-resize !important/);
+  assert.match(cssSource, /body\.transition-dragging/);
+  assert.match(cssSource, /text-overflow:ellipsis/);
 });
 
 test("korean drawtext subtitles prefer a Korean-capable font", () => {
@@ -780,6 +962,10 @@ test("timeline UI and render paths use 0.01 second time granularity", () => {
   assert.match(appSource, /const MIN_TIMELINE_CLIP_SEC = 0\.01;/);
   assert.match(appSource, /const TIMELINE_TIME_STEP_SEC = 0\.01;/);
   assert.match(appSource, /return snapTimelineTimeSec\(safe\)\.toFixed\(2\);/);
+  assert.match(appSource, /function nearestSnapPointTime/);
+  assert.match(appSource, /nearestSnapPointTime\(rawEnd, clip\.id/);
+  assert.match(appSource, /nearestSnapPointTime\(rawEnd, audio\.id/);
+  assert.match(appSource, /nearestSnapPointTime\(rawEnd, overlay\.id/);
   assert.match(htmlSource, /id="curTime">0\.00</);
   assert.match(htmlSource, /id="durTime">0\.00</);
   assert.match(htmlSource, /id="videoSourceInInput"[^>]*step="0\.01"/);

@@ -338,6 +338,13 @@
       x: secondsToPx(boundary.time, pxPerSec),
       transition: renderGraph ? renderGraph.resolveBoundaryTransition(analysis, boundary) : null
     }));
+    const boundaryTransitionByClipEdge = new Map();
+    boundaries.forEach((boundary) => {
+      const transition = boundary.transition;
+      if (!transition || transition.type === "cut") return;
+      if (boundary.fromClipId) boundaryTransitionByClipEdge.set(`outro:${boundary.fromClipId}`, transition);
+      if (boundary.toClipId) boundaryTransitionByClipEdge.set(`intro:${boundary.toClipId}`, transition);
+    });
     const transitionName = (type) => {
       const value = String(type || "").toLowerCase();
       if (value === "fade") return localeText("transitionTypeFade", "Fade In/Out");
@@ -351,8 +358,17 @@
       return localeText("transitionTypeCut", "Cut");
     };
     const createTransitionLabel = (type, durationSec, hover = false) => (
-      hover ? transitionName(type) : `${transitionName(type)} ${format1(durationSec)}s`
+      hover ? transitionName(type) : `${transitionShortName(type)} ${format1(durationSec)}s`
     );
+    const transitionShortName = (type) => {
+      const value = String(type || "").toLowerCase();
+      if (value === "fade") return "Fade";
+      if (value === "cross") return "Cross";
+      if (value === "focus_pull_in") return "Focus";
+      if (value === "cyber_mosaic_burst") return "Mosaic";
+      if (value.startsWith("blur_slide_")) return "Blur";
+      return "Fx";
+    };
     const createTransitionSurface = (config) => {
       const {
         type,
@@ -393,15 +409,29 @@
       surface.dataset.transitionTargetKind = scope && scope !== "boundary" ? "edge" : "boundary";
       if (boundaryIdx != null) surface.dataset.boundaryIdx = String(boundaryIdx);
       if (clipId) surface.dataset.clipId = String(clipId);
+      surface.title = `${transitionName(type)} · ${format1(durationSec)}s`;
 
-      const rail = document.createElement("div");
-      rail.className = "transitionDurationHandle";
-      rail.dataset.transitionType = type;
-      rail.dataset.transitionScope = scope || "boundary";
-      rail.dataset.transitionKey = surface.dataset.transitionKey;
-      rail.dataset.section = String(section);
-      if (boundaryIdx != null) rail.dataset.boundaryIdx = String(boundaryIdx);
-      if (clipId) rail.dataset.clipId = String(clipId);
+      const appendDurationHandle = (edge) => {
+        const handle = document.createElement("div");
+        handle.className = `transitionDurationHandle ${edge}`;
+        handle.dataset.transitionEdge = edge;
+        handle.dataset.transitionType = type;
+        handle.dataset.transitionScope = scope || "boundary";
+        handle.dataset.transitionKey = surface.dataset.transitionKey;
+        handle.dataset.section = String(section);
+        handle.title = edge === "left" ? "왼쪽 구간 조절" : "오른쪽 구간 조절";
+        if (boundaryIdx != null) handle.dataset.boundaryIdx = String(boundaryIdx);
+        if (clipId) handle.dataset.clipId = String(clipId);
+        surface.appendChild(handle);
+      };
+
+      const normalizedScope = scope || "boundary";
+      if (normalizedScope === "boundary") {
+        appendDurationHandle("left");
+        appendDurationHandle("right");
+      } else {
+        appendDurationHandle(normalizedScope === "intro" ? "right" : "left");
+      }
 
       const sig = document.createElement("div");
       sig.className = "transitionSignature";
@@ -411,7 +441,6 @@
       label.className = "transitionLabel";
       label.textContent = createTransitionLabel(type, durationSec, !!isPlaceholder);
 
-      surface.appendChild(rail);
       surface.appendChild(sig);
       surface.appendChild(label);
       return surface;
@@ -437,8 +466,20 @@
 
       const fadeInWidth = secondsToPx(Math.max(0, Number(clip.manualFadeInSec || 0)), pxPerSec);
       const fadeOutWidth = secondsToPx(Math.max(0, Number(clip.manualFadeOutSec || 0)), pxPerSec);
-      div.appendChild(createFadeHandle("video", clip.id, "left", fadeInWidth, clipWidth, "Fade In", Number(clip.manualFadeInSec || 0)));
-      div.appendChild(createFadeHandle("video", clip.id, "right", fadeOutWidth, clipWidth, "Fade Out", Number(clip.manualFadeOutSec || 0)));
+      const introSeamTransition = boundaryTransitionByClipEdge.get(`intro:${clip.id}`);
+      const outroSeamTransition = boundaryTransitionByClipEdge.get(`outro:${clip.id}`);
+      div.classList.toggle("fadeInLockedByTransition", !!introSeamTransition);
+      div.classList.toggle("fadeOutLockedByTransition", !!outroSeamTransition);
+      if (!introSeamTransition) {
+        div.appendChild(createFadeHandle("video", clip.id, "left", fadeInWidth, clipWidth, "Fade In", Number(clip.manualFadeInSec || 0)));
+      } else {
+        div.dataset.fadeInDisabledReason = "transition";
+      }
+      if (!outroSeamTransition) {
+        div.appendChild(createFadeHandle("video", clip.id, "right", fadeOutWidth, clipWidth, "Fade Out", Number(clip.manualFadeOutSec || 0)));
+      } else {
+        div.dataset.fadeOutDisabledReason = "transition";
+      }
       div.appendChild(createTrimHandle("video", clip.id, "left"));
       div.appendChild(createTrimHandle("video", clip.id, "right"));
 
@@ -627,11 +668,21 @@
       if ((transition && transition.type) || hoverTransition) {
         const type = hoverTransition || transition.type;
         const durationSec = Math.max(TIMELINE_TIME_STEP_SEC, Number((transition?.duration ?? hoverTarget?.duration ?? opts.transitionHoverDurationSec ?? 0.5)));
-        const durationPx = Math.max(34, secondsToPx(durationSec, pxPerSec));
+        const fallbackHalf = durationSec / 2;
+        const leftDurationSec = Math.max(
+          0,
+          Number(transition?.leftDuration ?? transition?.leftDurationSec ?? fallbackHalf)
+        );
+        const rightDurationSec = Math.max(
+          TIMELINE_TIME_STEP_SEC,
+          Number(transition?.rightDuration ?? transition?.rightDurationSec ?? Math.max(TIMELINE_TIME_STEP_SEC, durationSec - leftDurationSec))
+        );
+        const bridgeDurationSec = transition ? (leftDurationSec + rightDurationSec) : durationSec;
+        const durationPx = Math.max(34, secondsToPx(bridgeDurationSec, pxPerSec));
         const bridge = createTransitionSurface({
           type,
-          durationSec,
-          leftPx: type === "cut" ? boundary.x : Math.max(0, boundary.x - (durationPx / 2)),
+          durationSec: bridgeDurationSec,
+          leftPx: type === "cut" ? boundary.x : Math.max(0, boundary.x - secondsToPx(transition ? leftDurationSec : fallbackHalf, pxPerSec)),
           widthPx: type === "cut" ? 0 : durationPx,
           section: boundary.section,
           isPlaceholder: !!hoverTransition,

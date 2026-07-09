@@ -30,6 +30,19 @@
   --transition-rail-fill-top:rgba(148,163,184,.24);
   --transition-rail-fill-bottom:rgba(148,163,184,.12);
   --transition-label:#0f172a;
+  --fx-accent:#2563eb;
+  --fx-accent-rgb:37, 99, 235;
+  --fx-core-alpha:.78;
+  --fx-mid-alpha:.36;
+  --fx-edge-alpha:.12;
+  --fx-glow-alpha:.08;
+  --transition-bridge-bg:rgba(37, 99, 235, .13);
+  --transition-bridge-bg-strong:rgba(37, 99, 235, .22);
+  --transition-bridge-border:rgba(37, 99, 235, .55);
+  --transition-bridge-handle:#2563eb;
+  --transition-bridge-text:#172033;
+  --brand-tile-bg:#0b0f14;
+  --brand-tile-border:#c7d0dc;
   --control-text:#0f172a;
   --control-text-muted:#475569;
   --input-bg:#ffffff;
@@ -2616,6 +2629,118 @@ select{ width:135px; padding:5px 8px; font-size:10px; border:1px solid var(--inp
 .transitionBridge[data-transition-type="blur_slide_down"] .transitionSignature{
   background:linear-gradient(0deg, rgba(255,255,255,.4) 0%, rgba(255,255,255,0) 72%);
 }
+.transitionBridge{
+  border:1px solid var(--transition-bridge-border);
+  background:
+    linear-gradient(135deg, transparent 0 42%, var(--transition-bridge-bg-strong) 42% 58%, transparent 58% 100%),
+    var(--transition-bridge-bg);
+  border-radius:3px;
+  box-shadow:0 0 0 1px rgba(0,0,0,.16), 0 8px 18px rgba(2,6,23,.12);
+  overflow:visible;
+  z-index:32;
+  pointer-events:auto !important;
+  cursor:pointer;
+}
+.transitionDurationHandle{
+  position:absolute;
+  top:-2px;
+  bottom:-2px;
+  width:28px;
+  inset:auto;
+  z-index:38;
+  border:0;
+  background:transparent !important;
+  cursor:ew-resize !important;
+  pointer-events:auto !important;
+}
+.transitionDurationHandle.left{
+  left:-10px;
+}
+.transitionDurationHandle.right{
+  right:-10px;
+}
+.transitionDurationHandle::after{
+  content:"";
+  position:absolute;
+  top:2px;
+  bottom:2px;
+  width:4px;
+  border-radius:2px;
+  background:var(--transition-bridge-handle);
+  box-shadow:0 0 0 1px rgba(2,6,23,.22), 0 0 8px rgba(125,211,252,.26);
+  opacity:.88;
+}
+.transitionDurationHandle.left::after{
+  left:10px;
+}
+.transitionDurationHandle.right::after{
+  right:10px;
+}
+.transitionDurationHandle:hover::after,
+.transitionBridge.edgeResizeHover .transitionDurationHandle::after,
+body.transition-dragging .transitionDurationHandle::after{
+  opacity:1;
+  box-shadow:0 0 0 1px rgba(2,6,23,.28), 0 0 0 3px rgba(125,211,252,.18), 0 0 12px rgba(125,211,252,.34);
+}
+.transitionBridge.edgeResizeHover{
+  cursor:ew-resize !important;
+}
+body.transition-dragging,
+body.transition-dragging *{
+  cursor:ew-resize !important;
+}
+.transitionBridge::before,
+.transitionBridge::after{
+  content:"";
+  position:absolute;
+  top:0;
+  bottom:0;
+  width:4px;
+  background:var(--transition-bridge-handle);
+  opacity:.7;
+  z-index:2;
+  pointer-events:none;
+}
+.transitionBridge::before{ left:0; }
+.transitionBridge::after{ right:0; }
+.transitionSignature{
+  opacity:.52;
+  background:linear-gradient(90deg, transparent 0%, rgba(255,255,255,.16) 50%, transparent 100%) !important;
+}
+.transitionLabel{
+  color:var(--transition-bridge-text);
+  max-width:100%;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+  padding:0 8px;
+  font-size:10px;
+  letter-spacing:0;
+  text-shadow:none;
+}
+.transitionBridge[style*="width: 24px"] .transitionLabel,
+.transitionBridge[style*="width: 25px"] .transitionLabel,
+.transitionBridge[style*="width: 26px"] .transitionLabel,
+.transitionBridge[style*="width: 27px"] .transitionLabel,
+.transitionBridge[style*="width: 28px"] .transitionLabel,
+.transitionBridge[style*="width: 29px"] .transitionLabel,
+.transitionBridge[style*="width: 30px"] .transitionLabel,
+.transitionBridge[style*="width: 31px"] .transitionLabel,
+.transitionBridge[style*="width: 32px"] .transitionLabel{
+  font-size:0;
+}
+.transitionBridge[style*="width: 24px"] .transitionLabel::after,
+.transitionBridge[style*="width: 25px"] .transitionLabel::after,
+.transitionBridge[style*="width: 26px"] .transitionLabel::after,
+.transitionBridge[style*="width: 27px"] .transitionLabel::after,
+.transitionBridge[style*="width: 28px"] .transitionLabel::after,
+.transitionBridge[style*="width: 29px"] .transitionLabel::after,
+.transitionBridge[style*="width: 30px"] .transitionLabel::after,
+.transitionBridge[style*="width: 31px"] .transitionLabel::after,
+.transitionBridge[style*="width: 32px"] .transitionLabel::after{
+  content:"↔";
+  font-size:10px;
+}
 .transitionChip.cutChip{
   top:14px;
   padding:4px 8px;
@@ -2670,6 +2795,17 @@ body[data-theme="light"]{
   --transition-rail-fill-top:rgba(148,163,184,.24);
   --transition-rail-fill-bottom:rgba(148,163,184,.12);
   --transition-label:#0f172a;
+  --fx-accent:#2563eb;
+  --fx-accent-rgb:37, 99, 235;
+  --fx-core-alpha:.78;
+  --fx-mid-alpha:.36;
+  --fx-edge-alpha:.12;
+  --fx-glow-alpha:.08;
+  --transition-bridge-bg:rgba(37, 99, 235, .13);
+  --transition-bridge-bg-strong:rgba(37, 99, 235, .22);
+  --transition-bridge-border:rgba(37, 99, 235, .55);
+  --transition-bridge-handle:#2563eb;
+  --transition-bridge-text:#172033;
   --control-text:#0f172a;
   --control-text-muted:#475569;
   --input-bg:#ffffff;
@@ -2768,6 +2904,17 @@ body[data-theme="dark"]{
   --transition-rail-fill-top:rgba(100,116,139,.24);
   --transition-rail-fill-bottom:rgba(51,65,85,.18);
   --transition-label:#e5edf7;
+  --fx-accent:#61c7ff;
+  --fx-accent-rgb:97, 199, 255;
+  --fx-core-alpha:.82;
+  --fx-mid-alpha:.42;
+  --fx-edge-alpha:.14;
+  --fx-glow-alpha:.12;
+  --transition-bridge-bg:rgba(88, 166, 255, .18);
+  --transition-bridge-bg-strong:rgba(88, 166, 255, .30);
+  --transition-bridge-border:rgba(125, 211, 252, .62);
+  --transition-bridge-handle:#7dd3fc;
+  --transition-bridge-text:#e6edf5;
   --control-text:#e5edf7;
   --control-text-muted:#94a3b8;
   --input-bg:#0f172a;
@@ -4884,6 +5031,8 @@ body[data-theme="dark"]{
   --fade-region-out:linear-gradient(270deg, rgba(56,189,248,.24), rgba(56,189,248,.08) 55%, rgba(56,189,248,0));
   --fade-label-bg:rgba(5,10,17,.88);
   --fade-label-text:#dff6ff;
+  --brand-tile-bg:#05070b;
+  --brand-tile-border:#263241;
 }
 body[data-theme="light"]{
   --bg:#e7ecf3;
@@ -4906,6 +5055,41 @@ body[data-theme="light"]{
   --fade-region-out:linear-gradient(270deg, rgba(37,99,235,.22), rgba(37,99,235,.08) 55%, rgba(37,99,235,0));
   --fade-label-bg:rgba(15,23,42,.88);
   --fade-label-text:#ffffff;
+  --brand-tile-bg:#0b0f14;
+  --brand-tile-border:#c7d0dc;
+}
+
+#topbar .brand{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  color:var(--text);
+  font-size:14px;
+  font-weight:800;
+  letter-spacing:0;
+}
+.brandMark{
+  width:34px;
+  height:34px;
+  flex:0 0 34px;
+  display:inline-grid;
+  place-items:center;
+  overflow:hidden;
+  border-radius:5px;
+  border:1px solid var(--brand-tile-border);
+  background:var(--brand-tile-bg);
+}
+.brandLogo{
+  width:100%;
+  height:100%;
+  display:block;
+  object-fit:cover;
+}
+.brandName{
+  display:inline-block;
+  white-space:nowrap;
+  line-height:1;
 }
 
 .themeBtn,

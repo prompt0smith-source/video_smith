@@ -4,13 +4,18 @@
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file: blob:; media-src 'self' file: blob:; style-src 'self' 'unsafe-inline'; script-src 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>VideoSmith</title>
+  <title>VideoS</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <div id="app">
     <header id="topbar">
-      <div class="brand">VideoSmith</div>
+      <div class="brand" aria-label="VideoS">
+        <span class="brandMark" aria-hidden="true">
+          <img src="./assets/videosmith_logo.png" alt="" class="brandLogo" />
+        </span>
+        <span class="brandName">VideoS</span>
+      </div>
       <div class="top-actions">
         <button id="btnTheme" class="themeBtn" title="Theme" aria-label="Theme">
           <span class="themeBtnSun" aria-hidden="true">◐</span>

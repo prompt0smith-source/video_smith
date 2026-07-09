@@ -1,6 +1,6 @@
 {
   "name": "video-smith",
-  "productName": "Video Smith",
+  "productName": "VideoS",
   "version": "0.2.0",
   "description": "Grey-pearl offline video editor prototype (Electron + FFmpeg)",
   "main": "main.js",
@@ -23,7 +23,7 @@
   },
   "build": {
     "appId": "com.videosmith.app",
-    "productName": "Video Smith",
+    "productName": "VideoS",
     "win": {
       "target": [
         "nsis"
@@ -36,7 +36,7 @@
       "runAfterFinish": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Video Smith",
+      "shortcutName": "VideoS",
       "installerIcon": "Icon.ico",
       "uninstallerIcon": "Icon.ico",
       "installerHeaderIcon": "Icon.ico"

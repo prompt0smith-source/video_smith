@@ -374,7 +374,7 @@ applyRuntimeBinaryPaths();
 // matrix directly so those probe spawns are skipped.
 installFluentFfmpegCapabilityFallbacks();
 installFluentFfmpegSpawnGuard();
-app.setName("VideoSmith");
+app.setName("VideoS");
 
 const MAX_W = 3840;
 const MAX_H = 2160;
@@ -5314,6 +5314,15 @@ function sanitizeRenderProjectForFfmpeg(project = {}, target = {}, debugSession 
   next.videoClips = (next.videoClips || []).map((clip) => sanitizeMediaClipForRender(clip, warnings));
   next.audioItems = (next.audioItems || []).map((audio) => sanitizeAudioItemForRender(audio, warnings));
   next.overlayItems = (next.overlayItems || []).map((overlay) => sanitizeOverlayForRender(overlay, warnings));
+  if (renderGraph?.normalizeProjectTransitions) {
+    const normalizedTransitionProject = renderGraph.normalizeProjectTransitions(next);
+    next.transitions = normalizedTransitionProject.transitions || [];
+    if (normalizedTransitionProject.orphanedTransitions?.length) {
+      next.orphanedTransitions = normalizedTransitionProject.orphanedTransitions;
+      warnings.push(`orphaned_transitions:${normalizedTransitionProject.orphanedTransitions.length}`);
+      debugSession?.write?.("Transition migration warning", JSON.stringify(normalizedTransitionProject.orphanedTransitions));
+    }
+  }
   next.videoClips.forEach((clip) => {
     const sourcePath = getRenderableClipSourcePath(clip);
     const generated = clip?.type === "color" || clip?.isGeneratedBackground || clip?.backgroundColor || clip?.color;
@@ -6879,7 +6888,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
-    title: "VideoSmith",
+    title: "VideoS",
     icon: appIconPath,
     backgroundColor: "#090d12",
     webPreferences: {
